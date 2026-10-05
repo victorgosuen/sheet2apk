@@ -1,14 +1,43 @@
 /**
  * Cloudflare Pages Function: /api/build
  * Dispara o workflow do GitHub Actions para compilar o APK
+ * Suporta modo URL (Web App Google) e modo Diretório (Pasta ZIP com HTML/JS/CSS)
  */
+
+function base64ToUint8Array(base64) {
+    const raw = atob(base64.split(',').pop());
+    const uint8Array = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) {
+        uint8Array[i] = raw.charCodeAt(i);
+    }
+    return uint8Array;
+}
+
 export async function onRequestPost(context) {
     try {
         const body = await context.request.json();
-        const { app_name, app_url, package_name, theme_color, icon_base64, client_token, client_repo } = body;
+        const { 
+            app_name, 
+            app_url, 
+            build_mode = 'url', 
+            zip_base64, 
+            package_name, 
+            theme_color, 
+            icon_base64, 
+            client_token, 
+            client_repo 
+        } = body;
 
-        if (!app_url || !app_url.startsWith('http')) {
+        // Validação conforme o modo escolhido
+        if (build_mode === 'url' && (!app_url || !app_url.startsWith('http'))) {
             return new Response(JSON.stringify({ error: 'URL inválida. Deve iniciar com http:// ou https://' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' }
+            });
+        }
+
+        if (build_mode === 'directory' && (!zip_base64 || zip_base64.length < 50)) {
+            return new Response(JSON.stringify({ error: 'Nenhum arquivo ZIP da pasta do sistema foi fornecido.' }), {
                 status: 400,
                 headers: { 'Content-Type': 'application/json' }
             });
@@ -30,6 +59,57 @@ export async function onRequestPost(context) {
         // Gera um ID de build único
         const build_id = Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
 
+        let source_tag = '';
+
+        // Se o modo for Diretório, cria uma Release temporária para hospedar o source.zip
+        if (build_mode === 'directory' && zip_base64) {
+            source_tag = `source-${build_id}`;
+            console.log(`==> Criando pacote de código fonte em release: ${source_tag}`);
+
+            // 1. Criar Release para os fontes
+            const createRelRes = await fetch(`https://api.github.com/repos/${repoFullName}/releases`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Accept': 'application/vnd.github+json',
+                    'User-Agent': 'Cloudflare-Pages-Apk-Builder',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    tag_name: source_tag,
+                    name: `Source Code ${build_id}`,
+                    draft: false,
+                    prerelease: true
+                })
+            });
+
+            if (!createRelRes.ok) {
+                const err = await createRelRes.text();
+                throw new Error(`Falha ao preparar envio da pasta no GitHub: ${err}`);
+            }
+
+            const relData = await createRelRes.json();
+            const uploadUrl = `https://uploads.github.com/repos/${repoFullName}/releases/${relData.id}/assets?name=source.zip`;
+
+            // 2. Fazer upload do arquivo zip binário
+            const zipBytes = base64ToUint8Array(zip_base64);
+            const uploadRes = await fetch(uploadUrl, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Accept': 'application/vnd.github+json',
+                    'User-Agent': 'Cloudflare-Pages-Apk-Builder',
+                    'Content-Type': 'application/zip'
+                },
+                body: zipBytes
+            });
+
+            if (!uploadRes.ok) {
+                const err = await uploadRes.text();
+                throw new Error(`Falha ao carregar o arquivo ZIP no GitHub: ${err}`);
+            }
+        }
+
         // O GitHub Actions limita o payload de inputs em 65KB.
         let safeIcon = icon_base64 || '';
         if (safeIcon.length > 55000) {
@@ -50,7 +130,9 @@ export async function onRequestPost(context) {
                 ref: 'main',
                 inputs: {
                     app_name: app_name || 'Planilha App',
-                    app_url: app_url.trim(),
+                    app_url: app_url ? app_url.trim() : 'https://appassets.androidplatform.net/assets/www/index.html',
+                    build_mode: build_mode,
+                    source_tag: source_tag,
                     package_name: package_name || 'com.sheet.app',
                     theme_color: theme_color || '#0F9D58',
                     icon_base64: safeIcon,
@@ -72,6 +154,7 @@ export async function onRequestPost(context) {
         return new Response(JSON.stringify({
             success: true,
             build_id: build_id,
+            build_mode: build_mode,
             repo: repoFullName,
             message: 'Compilação iniciada com sucesso no GitHub Actions!'
         }), {

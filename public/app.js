@@ -46,8 +46,80 @@ document.addEventListener('DOMContentLoaded', () => {
     const errorMessage = document.getElementById('errorMessage');
     const errorLogsLink = document.getElementById('errorLogsLink');
 
-    let currentIconBase64 = "";
+    // Modos de Origem (URL vs Pasta ZIP)
+    const tabModeUrl = document.getElementById('tabModeUrl');
+    const tabModeDir = document.getElementById('tabModeDir');
+    const groupUrlMode = document.getElementById('groupUrlMode');
+    const groupDirMode = document.getElementById('groupDirMode');
+    const zipFileInput = document.getElementById('zipFileInput');
+    const zipDropZone = document.getElementById('zipDropZone');
+    const zipFileName = document.getElementById('zipFileName');
+    const zipFileSub = document.getElementById('zipFileSub');
+
+    let activeMode = 'url';
+    let currentZipBase64 = '';
+    let currentIconBase64 = '';
     let pollInterval = null;
+
+    // Alternar entre modo URL e modo Pasta ZIP
+    tabModeUrl.addEventListener('click', () => {
+        activeMode = 'url';
+        tabModeUrl.classList.add('active');
+        tabModeDir.classList.remove('active');
+        groupUrlMode.style.display = 'flex';
+        groupDirMode.style.display = 'none';
+    });
+
+    tabModeDir.addEventListener('click', () => {
+        activeMode = 'directory';
+        tabModeDir.classList.add('active');
+        tabModeUrl.classList.remove('active');
+        groupUrlMode.style.display = 'none';
+        groupDirMode.style.display = 'flex';
+    });
+
+    // Processamento do Arquivo ZIP
+    function handleZipFile(file) {
+        if (!file || !file.name.toLowerCase().endsWith('.zip')) {
+            alert('Por favor, selecione um arquivo compactado no formato .ZIP');
+            return;
+        }
+        zipFileName.textContent = 'Lendo arquivo...';
+        zipFileSub.textContent = file.name;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            currentZipBase64 = e.target.result;
+            zipFileName.textContent = file.name;
+            const sizeMb = (file.size / (1024 * 1024)).toFixed(2);
+            zipFileSub.textContent = `Arquivo carregado (${sizeMb} MB) • Pronto para gerar APK offline!`;
+            zipDropZone.classList.add('file-selected');
+        };
+        reader.readAsDataURL(file);
+    }
+
+    zipFileInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files[0]) {
+            handleZipFile(e.target.files[0]);
+        }
+    });
+
+    zipDropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        zipDropZone.classList.add('drag-over');
+    });
+
+    zipDropZone.addEventListener('dragleave', () => {
+        zipDropZone.classList.remove('drag-over');
+    });
+
+    zipDropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        zipDropZone.classList.remove('drag-over');
+        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+            handleZipFile(e.dataTransfer.files[0]);
+        }
+    });
 
     // 1. Carregar Configurações salvas do LocalStorage
     cfgRepoInput.value = localStorage.getItem('sheet2apk_repo') || '';
@@ -190,9 +262,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const clientRepo = localStorage.getItem('sheet2apk_repo') || '';
         const clientToken = localStorage.getItem('sheet2apk_token') || '';
 
-        if (!appUrl.startsWith('http')) {
-            alert('A URL deve começar com http:// ou https://');
-            return;
+        if (activeMode === 'url') {
+            if (!appUrl.startsWith('http')) {
+                alert('A URL deve começar com http:// ou https://');
+                return;
+            }
+        } else if (activeMode === 'directory') {
+            if (!currentZipBase64) {
+                alert('Por favor, selecione o arquivo .ZIP com os arquivos da sua pasta.');
+                return;
+            }
         }
 
         // Abre o modal de progresso
@@ -212,6 +291,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     body: JSON.stringify({
                         app_name: appName,
                         app_url: appUrl,
+                        build_mode: activeMode,
+                        zip_base64: currentZipBase64,
                         package_name: packageName,
                         theme_color: themeColor,
                         icon_base64: currentIconBase64,
@@ -233,6 +314,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     buildData = await triggerGitHubDirectly({
                         app_name: appName,
                         app_url: appUrl,
+                        build_mode: activeMode,
+                        zip_base64: currentZipBase64,
                         package_name: packageName,
                         theme_color: themeColor,
                         icon_base64: currentIconBase64,
@@ -273,6 +356,35 @@ document.addEventListener('DOMContentLoaded', () => {
     // Fallback direto via GitHub REST API para testes locais
     async function triggerGitHubDirectly(params) {
         const buildId = Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+        let source_tag = '';
+
+        if (params.build_mode === 'directory' && params.zip_base64) {
+            source_tag = `source-${buildId}`;
+            const createRel = await fetch(`https://api.github.com/repos/${params.repo}/releases`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${params.token}`,
+                    'Accept': 'application/vnd.github+json',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ tag_name: source_tag, name: `Source Code ${buildId}`, prerelease: true })
+            });
+            const relData = await createRel.json();
+            const rawBytes = atob(params.zip_base64.split(',').pop());
+            const uint8Array = new Uint8Array(rawBytes.length);
+            for (let i = 0; i < rawBytes.length; i++) uint8Array[i] = rawBytes.charCodeAt(i);
+
+            await fetch(`https://uploads.github.com/repos/${params.repo}/releases/${relData.id}/assets?name=source.zip`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${params.token}`,
+                    'Accept': 'application/vnd.github+json',
+                    'Content-Type': 'application/zip'
+                },
+                body: uint8Array
+            });
+        }
+
         const url = `https://api.github.com/repos/${params.repo}/actions/workflows/build-apk.yml/dispatches`;
 
         const res = await fetch(url, {
@@ -286,7 +398,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 ref: 'main',
                 inputs: {
                     app_name: params.app_name,
-                    app_url: params.app_url,
+                    app_url: params.app_url || 'https://appassets.androidplatform.net/assets/www/index.html',
+                    build_mode: params.build_mode || 'url',
+                    source_tag: source_tag,
                     package_name: params.package_name,
                     theme_color: params.theme_color,
                     icon_base64: params.icon_base64,

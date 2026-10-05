@@ -40,7 +40,9 @@ def darken_color(hex_str, factor=0.8):
 def main():
     parser = argparse.ArgumentParser(description="Configura os parâmetros do app Android")
     parser.add_argument("--app-name", default="Planilha App", help="Nome do Aplicativo")
-    parser.add_argument("--app-url", required=True, help="URL do Web App do Google")
+    parser.add_argument("--app-url", default="https://script.google.com/", help="URL do Web App ou local")
+    parser.add_argument("--build-mode", default="url", choices=["url", "directory"], help="Modo: url ou directory")
+    parser.add_argument("--zip-file", default="", help="Caminho do arquivo ZIP da pasta")
     parser.add_argument("--package-name", default="com.sheet.app", help="Package Name (applicationId)")
     parser.add_argument("--theme-color", default="#0F9D58", help="Cor primária em hexadecimal")
     parser.add_argument("--icon-base64", default="", help="Ícone do app em formato Base64 PNG/JPG")
@@ -51,9 +53,38 @@ def main():
     app_res = os.path.join(root_dir, 'app', 'src', 'main', 'res')
     
     print(f"==> Configurando projeto em: {root_dir}")
+    print(f"==> Modo de Build: {args.build_mode}")
     print(f"==> Nome do App: {args.app_name}")
-    print(f"==> URL: {args.app_url}")
     print(f"==> Pacote: {args.package_name}")
+
+    final_url = args.app_url
+
+    # Se o modo for Diretório/Pasta, descompacta os arquivos em assets/www
+    if args.build_mode == "directory" or args.zip_file:
+        assets_dir = os.path.join(root_dir, 'app', 'src', 'main', 'assets', 'www')
+        os.makedirs(assets_dir, exist_ok=True)
+
+        if args.zip_file and os.path.exists(args.zip_file):
+            import zipfile
+            import shutil
+
+            print(f"==> Extraindo arquivos locais para: {assets_dir}")
+            with zipfile.ZipFile(args.zip_file, 'r') as zf:
+                zf.extractall(assets_dir)
+
+            # Se todos os arquivos ficaram dentro de uma subpasta única, achata para a raiz
+            items = os.listdir(assets_dir)
+            if len(items) == 1 and os.path.isdir(os.path.join(assets_dir, items[0])):
+                subfolder = os.path.join(assets_dir, items[0])
+                for subitem in os.listdir(subfolder):
+                    shutil.move(os.path.join(subfolder, subitem), os.path.join(assets_dir, subitem))
+                os.rmdir(subfolder)
+
+            print("[OK] Arquivos do diretório descompactados com sucesso.")
+        
+        final_url = "https://appassets.androidplatform.net/assets/www/index.html"
+
+    print(f"==> URL Final configurada: {final_url}")
 
     # 1. Atualizar strings.xml (app_name e app_url)
     strings_path = os.path.join(app_res, 'values', 'strings.xml')
@@ -62,7 +93,7 @@ def main():
             content = f.read()
 
         safe_name = escape_xml(args.app_name)
-        safe_url = escape_xml(args.app_url)
+        safe_url = escape_xml(final_url)
 
         content = re.sub(
             r'<string name="app_name">.*?</string>',

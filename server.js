@@ -41,6 +41,36 @@ const server = http.createServer(async (req, res) => {
                 }
 
                 const build_id = Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+                const build_mode = body.build_mode || 'url';
+                let source_tag = '';
+
+                if (build_mode === 'directory' && body.zip_base64) {
+                    source_tag = `source-${build_id}`;
+                    console.log(`==> [Local Dev] Criando release para source.zip: ${source_tag}`);
+                    const createRel = await fetch(`https://api.github.com/repos/${repo}/releases`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Accept': 'application/vnd.github+json',
+                            'User-Agent': 'Sheet2Apk-Local-Dev',
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ tag_name: source_tag, name: `Source Code ${build_id}`, prerelease: true })
+                    });
+                    const relData = await createRel.json();
+                    const zipBuffer = Buffer.from(body.zip_base64.split(',').pop(), 'base64');
+                    await fetch(`https://uploads.github.com/repos/${repo}/releases/${relData.id}/assets?name=source.zip`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Accept': 'application/vnd.github+json',
+                            'User-Agent': 'Sheet2Apk-Local-Dev',
+                            'Content-Type': 'application/zip'
+                        },
+                        body: zipBuffer
+                    });
+                }
+
                 const dispatchUrl = `https://api.github.com/repos/${repo}/actions/workflows/build-apk.yml/dispatches`;
 
                 let safeIcon = body.icon_base64 || '';
@@ -58,7 +88,9 @@ const server = http.createServer(async (req, res) => {
                         ref: 'main',
                         inputs: {
                             app_name: body.app_name || 'Planilha App',
-                            app_url: body.app_url,
+                            app_url: body.app_url || 'https://appassets.androidplatform.net/assets/www/index.html',
+                            build_mode: build_mode,
+                            source_tag: source_tag,
                             package_name: body.package_name || 'com.sheet.app',
                             theme_color: body.theme_color || '#0F9D58',
                             icon_base64: safeIcon,
@@ -74,7 +106,7 @@ const server = http.createServer(async (req, res) => {
                 }
 
                 res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: true, build_id, repo }));
+                res.end(JSON.stringify({ success: true, build_id, build_mode, repo }));
 
             } catch (err) {
                 res.writeHead(500, { 'Content-Type': 'application/json' });

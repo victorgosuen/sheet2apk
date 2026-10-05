@@ -22,6 +22,14 @@ on:
         description: 'Ícone Base64 (PNG)'
         required: false
         default: ''
+      build_mode:
+        description: 'Modo: url ou directory'
+        required: false
+        default: 'url'
+      source_tag:
+        description: 'Tag de release do source.zip (se modo directory)'
+        required: false
+        default: ''
       build_id:
         description: 'ID Único da Compilação'
         required: true
@@ -50,12 +58,22 @@ jobs:
           python-version: '3.11'
       - run: pip install pillow
 
+      - name: Baixar Arquivos da Pasta (Modo Diretório)
+        if: ${{ inputs.build_mode == 'directory' && inputs.source_tag != '' }}
+        run: |
+          gh release download "${{ inputs.source_tag }}" --pattern "source.zip" --dir .
+          echo "ZIP_PATH=source.zip" >> $GITHUB_ENV
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Injetar Parâmetros no Projeto Android
         id: prep
         run: |
           python scripts/prepare-build.py \
             --app-name "${{ inputs.app_name }}" \
             --app-url "${{ inputs.app_url }}" \
+            --build-mode "${{ inputs.build_mode }}" \
+            --zip-file "${{ env.ZIP_PATH }}" \
             --package-name "${{ inputs.package_name }}" \
             --theme-color "${{ inputs.theme_color }}" \
             --icon-base64 "${{ inputs.icon_base64 }}"
@@ -110,5 +128,12 @@ jobs:
           draft: false
           prerelease: false
           files: ${{ env.APK_FILE_PATH }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Limpar Release Temporária de Código Fonte
+        if: ${{ inputs.build_mode == 'directory' && inputs.source_tag != '' }}
+        run: |
+          gh release delete "${{ inputs.source_tag }}" --yes --cleanup-tag || true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

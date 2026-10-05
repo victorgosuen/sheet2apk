@@ -24,6 +24,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import androidx.webkit.WebViewAssetLoader
 
 class MainActivity : AppCompatActivity() {
 
@@ -32,6 +33,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var progressBar: ProgressBar
     private lateinit var layoutOffline: LinearLayout
     private lateinit var btnRetry: Button
+    private lateinit var assetLoader: WebViewAssetLoader
 
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var webAppUrl: String = ""
@@ -63,6 +65,10 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         webAppUrl = getString(R.string.app_url)
+
+        assetLoader = WebViewAssetLoader.Builder()
+            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
+            .build()
 
         initViews()
         setupWebView()
@@ -154,14 +160,22 @@ class MainActivity : AppCompatActivity() {
 
         // WebViewClient: Navegação interna e links externos (WhatsApp, etc.)
         webView.webViewClient = object : WebViewClient() {
+            override fun shouldInterceptRequest(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): WebResourceResponse? {
+                val url = request?.url ?: return null
+                return assetLoader.shouldInterceptRequest(url)
+            }
+
             override fun shouldOverrideUrlLoading(
                 view: WebView?,
                 request: WebResourceRequest?
             ): Boolean {
                 val url = request?.url?.toString() ?: return false
 
-                // Manter links HTTP/HTTPS dentro da WebView
-                if (url.startsWith("http://") || url.startsWith("https://")) {
+                // Manter links HTTP/HTTPS locais ou remotos dentro da WebView
+                if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("file://")) {
                     return false
                 }
 
@@ -192,7 +206,8 @@ class MainActivity : AppCompatActivity() {
                 error: WebResourceError?
             ) {
                 super.onReceivedError(view, request, error)
-                if (request?.isForMainFrame == true && !isOnline()) {
+                val isLocalApp = webAppUrl.contains("appassets.androidplatform.net") || webAppUrl.startsWith("file://")
+                if (!isLocalApp && request?.isForMainFrame == true && !isOnline()) {
                     webView.visibility = View.GONE
                     layoutOffline.visibility = View.VISIBLE
                 }
@@ -248,7 +263,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadWebApp() {
-        if (isOnline()) {
+        val isLocalApp = webAppUrl.contains("appassets.androidplatform.net") || webAppUrl.startsWith("file://")
+        if (isLocalApp || isOnline()) {
             layoutOffline.visibility = View.GONE
             webView.visibility = View.VISIBLE
             webView.loadUrl(webAppUrl)
