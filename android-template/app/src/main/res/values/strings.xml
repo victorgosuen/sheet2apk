@@ -1,6 +1,6 @@
 <resources>
     <!-- Configurações Principais Substituídas Durante o Build -->
-    <string name="app_name">Planilha Web App</string>
+    <string name="app_name">Planilha App</string>
     <string name="app_url">https://script.google.com/</string>
     
     <!-- Textos da Interface do App -->

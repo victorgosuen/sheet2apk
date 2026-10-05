@@ -30,6 +30,42 @@ on:
         description: 'Tag de release do source.zip (se modo directory)'
         required: false
         default: ''
+      orientation:
+        description: 'Orientação de Tela: auto, portrait, landscape'
+        required: false
+        default: 'auto'
+      perm_location:
+        description: 'Permissão de Localização GPS'
+        required: false
+        default: 'false'
+      perm_camera:
+        description: 'Permissão de Câmera'
+        required: false
+        default: 'false'
+      perm_mic:
+        description: 'Permissão de Microfone'
+        required: false
+        default: 'false'
+      keep_screen_on:
+        description: 'Manter Tela Ligada'
+        required: false
+        default: 'false'
+      fullscreen:
+        description: 'Modo Tela Cheia'
+        required: false
+        default: 'false'
+      pull_to_refresh:
+        description: 'Puxar para Atualizar'
+        required: false
+        default: 'true'
+      splash_base64:
+        description: 'Splash Screen Base64'
+        required: false
+        default: ''
+      splash_type:
+        description: 'Tipo de Splash: none, lottie, image'
+        required: false
+        default: 'none'
       build_id:
         description: 'ID Único da Compilação'
         required: true
@@ -76,7 +112,16 @@ jobs:
             --zip-file "${{ env.ZIP_PATH }}" \
             --package-name "${{ inputs.package_name }}" \
             --theme-color "${{ inputs.theme_color }}" \
-            --icon-base64 "${{ inputs.icon_base64 }}"
+            --icon-base64 "${{ inputs.icon_base64 }}" \
+            --orientation "${{ inputs.orientation }}" \
+            --perm-location "${{ inputs.perm_location }}" \
+            --perm-camera "${{ inputs.perm_camera }}" \
+            --perm-mic "${{ inputs.perm_mic }}" \
+            --keep-screen-on "${{ inputs.keep_screen_on }}" \
+            --fullscreen "${{ inputs.fullscreen }}" \
+            --pull-to-refresh "${{ inputs.pull_to_refresh }}" \
+            --splash-base64 "${{ inputs.splash_base64 }}" \
+            --splash-type "${{ inputs.splash_type }}"
 
       - name: Configurar Gradle 8.4 Oficial
         uses: gradle/actions/setup-gradle@v3

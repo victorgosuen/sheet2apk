@@ -3,11 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sheet2APK • Transforme Google Planilhas Web em Aplicativo Android</title>
+    <title>Sheet2APK • Transforme Planilhas Web e Pastas em Aplicativos Android</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    <script src="jszip.min.js"></script>
 </head>
 <body>
     <!-- Header / Navbar -->
@@ -50,8 +51,8 @@
             <!-- Left Column: Form -->
             <section class="form-section">
                 <div class="hero-text">
-                    <h2>Converta seu Web App em um <span>APK Nativo</span></h2>
-                    <p>Compilador Android Gradle nativo. 100% gratuito utilizando a infraestrutura do Cloudflare e GitHub Actions.</p>
+                    <h2>Converta seu Sistema em um <span>APK Nativo</span></h2>
+                    <p>Compilação Android Gradle oficial. Suporta Google Planilhas Web e Pastas inteiras de projetos HTML/JS/CSS.</p>
                 </div>
 
                 <form id="apkForm" class="card-form">
@@ -69,7 +70,7 @@
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
                             </svg>
-                            <span>Pasta / Arquivo ZIP (Offline)</span>
+                            <span>Arrastar Pasta / ZIP</span>
                         </button>
                     </div>
 
@@ -79,7 +80,7 @@
                         <div class="input-wrapper">
                             <input type="text" id="appName" name="appName" placeholder="Ex: Gestão de Vendas" required maxlength="40" value="Minha Planilha App">
                         </div>
-                        <span class="field-hint">Este é o nome que aparecerá abaixo do ícone no Android.</span>
+                        <span class="field-hint">Este é o nome que aparecerá abaixo do ícone na tela inicial do celular.</span>
                     </div>
 
                     <!-- Opção 1: Web App URL (Google Apps Script / Planilha) -->
@@ -91,11 +92,13 @@
                         <span class="field-hint">Cole o link gerado em <em>Implantar &gt; Nova Implantação &gt; App da Web</em>.</span>
                     </div>
 
-                    <!-- Opção 2: Pasta / Arquivo ZIP (Modo Diretório) -->
+                    <!-- Opção 2: Pasta Direta ou Arquivo ZIP (Modo Diretório) -->
                     <div class="form-group" id="groupDirMode" style="display: none;">
-                        <label>Arquivo ZIP da Pasta do Sistema</label>
-                        <div class="zip-upload-container" id="zipDropZone">
+                        <label>Pasta do Sistema (HTML, JS, CSS) ou Arquivo .ZIP</label>
+                        <div class="zip-upload-container" id="folderDropZone">
+                            <input type="file" id="folderPicker" webkitdirectory directory multiple style="display: none;">
                             <input type="file" id="zipFileInput" accept=".zip" style="display: none;">
+
                             <div class="zip-icon-box">
                                 <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#10B981" stroke-width="2">
                                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
@@ -104,21 +107,26 @@
                                 </svg>
                             </div>
                             <div class="zip-text-info">
-                                <strong id="zipFileName">Compacte sua pasta em .ZIP</strong>
-                                <span id="zipFileSub">Arraste o arquivo .zip ou clique para selecionar</span>
+                                <strong id="dirStatusTitle">Arraste sua pasta inteira aqui</strong>
+                                <span id="dirStatusSub">Ou escolha entre pasta local ou arquivo compactado .ZIP</span>
                             </div>
-                            <button type="button" class="btn-select-file" onclick="document.getElementById('zipFileInput').click()">
-                                Escolher .ZIP
-                            </button>
+                            <div class="dir-btn-actions">
+                                <button type="button" class="btn-select-file" id="btnSelectFolder">
+                                    Selecionar Pasta
+                                </button>
+                                <button type="button" class="btn-select-file btn-outline" id="btnSelectZip">
+                                    Arquivo .ZIP
+                                </button>
+                            </div>
                         </div>
-                        <span class="field-hint">O arquivo ZIP deve conter seu <code>index.html</code> e os arquivos do sistema (CSS, JS, imagens).</span>
+                        <span class="field-hint" id="dirHelpText">A pasta deve conter seu arquivo <code>index.html</code>. A compactação ocorre diretamente no seu navegador.</span>
                     </div>
 
                     <!-- App Icon Upload -->
                     <div class="form-group">
                         <label>Ícone do Aplicativo (PNG ou JPG)</label>
                         <div class="icon-upload-container" id="dropZone">
-                            <input type="file" id="iconFileInput" accept="image/png, image/jpeg" style="display: none;">
+                            <input type="file" id="iconFileInput" accept="image/png, image/jpeg, image/webp" style="display: none;">
                             <div class="icon-preview-box" id="iconPreviewBox">
                                 <img id="iconPreviewImg" src="" alt="Prévia do Ícone" style="display: none;">
                                 <div id="iconPlaceholder">
@@ -127,12 +135,40 @@
                                         <circle cx="8.5" cy="8.5" r="1.5" />
                                         <polyline points="21 15 16 10 5 21" />
                                     </svg>
-                                    <span>Clique ou arraste seu ícone aqui</span>
+                                    <span>Clique ou arraste seu ícone</span>
                                 </div>
                             </div>
                             <button type="button" class="btn-select-file" onclick="document.getElementById('iconFileInput').click()">
-                                Escolher Imagem
+                                Escolher Ícone
                             </button>
+                        </div>
+                    </div>
+
+                    <!-- Splash Screen Customizada (Lottie JSON ou Imagem) -->
+                    <div class="form-group">
+                        <label>Tela de Abertura / Splash Screen (Opcional)</label>
+                        <div class="splash-upload-container" id="splashDropZone">
+                            <input type="file" id="splashFileInput" accept=".json,image/png,image/jpeg,image/webp" style="display: none;">
+                            <div class="splash-preview-box" id="splashPreviewBox">
+                                <div id="splashPlaceholder">
+                                    <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                                    </svg>
+                                </div>
+                                <img id="splashPreviewImg" src="" alt="Splash Preview" style="display: none;">
+                            </div>
+                            <div class="splash-text-info">
+                                <strong id="splashTitle">Animação Lottie (.json) ou Imagem</strong>
+                                <span id="splashSub">Exibida durante o carregamento inicial do aplicativo</span>
+                            </div>
+                            <div class="splash-actions">
+                                <button type="button" class="btn-select-file" id="btnSelectSplash">
+                                    Escolher Splash
+                                </button>
+                                <button type="button" class="btn-remove-splash" id="btnRemoveSplash" style="display: none;" title="Remover tela de abertura">
+                                    &times;
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -155,13 +191,90 @@
                     </div>
 
                     <!-- Advanced Settings Accordion -->
-                    <details class="advanced-settings">
-                        <summary>Configurações Avançadas (Opcional)</summary>
+                    <details class="advanced-settings" id="advancedDetails">
+                        <summary>
+                            <span>Configurações Avançadas (Permissões, Rotação e Tela)</span>
+                            <svg class="chevron-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="6 9 12 15 18 9"></polyline>
+                            </svg>
+                        </summary>
+                        
                         <div class="advanced-content">
+                            <!-- Package Name -->
                             <div class="form-group">
                                 <label for="packageName">Identificador do Pacote (Package Name)</label>
                                 <input type="text" id="packageName" name="packageName" value="com.app.planilha" placeholder="com.suaempresa.app">
                                 <span class="field-hint">Deve ter pelo menos 2 segmentos separados por ponto (ex: com.empresa.app).</span>
+                            </div>
+
+                            <!-- Screen Orientation -->
+                            <div class="form-group">
+                                <label for="screenOrientation">Trava de Rotação da Tela</label>
+                                <select id="screenOrientation" class="styled-select">
+                                    <option value="auto" selected>🔄 Automático / Sensor (Gira livremente com o celular)</option>
+                                    <option value="portrait">📱 Travado em Retrato (Vertical / Em Pé)</option>
+                                    <option value="landscape">📺 Travado em Paisagem (Horizontal / Deitado)</option>
+                                </select>
+                                <span class="field-hint">Defina se o aplicativo deve girar livremente ou ficar travado em uma orientação.</span>
+                            </div>
+
+                            <!-- Screen Behaviors -->
+                            <div class="settings-subgroup">
+                                <h4 class="subgroup-title">Comportamentos de Tela</h4>
+
+                                <label class="checkbox-card">
+                                    <input type="checkbox" id="chkKeepScreenOn">
+                                    <div class="checkbox-text">
+                                        <strong>⚡ Manter Tela Sempre Ligada (Modo Totem / Balcão)</strong>
+                                        <span>Impede que o visor do celular escureça ou bloqueie enquanto o app estiver aberto.</span>
+                                    </div>
+                                </label>
+
+                                <label class="checkbox-card">
+                                    <input type="checkbox" id="chkFullscreen">
+                                    <div class="checkbox-text">
+                                        <strong>🔲 Tela Cheia Imersiva (Ocultar Barra de Status)</strong>
+                                        <span>Esconde a barra superior do Android para uma experiência visual 100% nativa.</span>
+                                    </div>
+                                </label>
+
+                                <label class="checkbox-card">
+                                    <input type="checkbox" id="chkPullToRefresh" checked>
+                                    <div class="checkbox-text">
+                                        <strong>🔄 Puxar para Atualizar (Pull-to-refresh)</strong>
+                                        <span>Permite que o usuário puxe a tela para baixo para recarregar a planilha ou página.</span>
+                                    </div>
+                                </label>
+                            </div>
+
+                            <!-- Granular Permissions -->
+                            <div class="settings-subgroup">
+                                <h4 class="subgroup-title">Permissões Granulares do Android</h4>
+                                <p class="subgroup-desc">Ative apenas o que seu app realmente utiliza para transmitir mais segurança aos usuários:</p>
+
+                                <label class="checkbox-card">
+                                    <input type="checkbox" id="chkPermLocation">
+                                    <div class="checkbox-text">
+                                        <strong>📍 Localização GPS (Geolocalização)</strong>
+                                        <span>Permite que seu sistema ou formulário acesse a posição GPS via <code>navigator.geolocation</code>.</span>
+                                    </div>
+                                </label>
+
+                                <label class="checkbox-card">
+                                    <input type="checkbox" id="chkPermCamera">
+                                    <div class="checkbox-text">
+                                        <strong>📷 Câmera do Dispositivo</strong>
+                                        <span>Permite escanear códigos de barras, QR codes e tirar fotos diretamente pelo app.</span>
+                                    </div>
+                                </label>
+
+                                <label class="checkbox-card">
+                                    <input type="checkbox" id="chkPermMic">
+                                    <div class="checkbox-text">
+                                        <strong>🎙️ Microfone e Áudio</strong>
+                                        <span>Permite gravar notas de voz e executar comandos sonoros no sistema.</span>
+                                    </div>
+                                </label>
                             </div>
                         </div>
                     </details>
@@ -183,14 +296,17 @@
                 <div class="preview-header">
                     <h3>Pré-visualização no Celular</h3>
                     <p>Veja como o aplicativo ficará na tela do Android</p>
+                    <button type="button" id="btnTestSplash" class="btn-test-splash" title="Visualizar efeito da Tela de Abertura">
+                        👁️ Testar Splash Screen
+                    </button>
                 </div>
 
-                <div class="phone-frame">
+                <div class="phone-frame" id="phoneFrame">
                     <div class="phone-speaker"></div>
                     <div class="phone-camera"></div>
 
                     <!-- Phone Screen Content -->
-                    <div class="phone-screen">
+                    <div class="phone-screen" id="phoneScreen">
                         <!-- Android Status Bar -->
                         <div class="mockup-status-bar" id="mockupStatusBar">
                             <span class="time">12:30</span>
@@ -253,8 +369,21 @@
                             </div>
                         </div>
 
+                        <!-- Mockup Splash Screen Overlay -->
+                        <div class="mockup-splash-overlay" id="mockupSplashOverlay">
+                            <div class="mockup-splash-content" id="mockupSplashContent">
+                                <div class="mockup-splash-icon" id="mockupSplashIcon">
+                                    <svg viewBox="0 0 24 24" width="36" height="36" fill="white">
+                                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                                    </svg>
+                                </div>
+                                <span class="mockup-splash-app-name" id="mockupSplashAppName">Minha Planilha App</span>
+                                <div class="mockup-splash-loader"></div>
+                            </div>
+                        </div>
+
                         <!-- Android Bottom Navigation Bar -->
-                        <div class="mockup-nav-bar">
+                        <div class="mockup-nav-bar" id="mockupNavBar">
                             <div class="nav-bar-indicator"></div>
                         </div>
                     </div>
@@ -288,8 +417,8 @@
                     <div class="step-item" id="step2">
                         <div class="step-bullet">2</div>
                         <div class="step-text">
-                            <strong>Configurando Android &amp; Injetando Web App</strong>
-                            <span>Aplicando nome, ícone e link do Google Planilhas...</span>
+                            <strong>Configurando Android &amp; Injetando Parâmetros</strong>
+                            <span>Aplicando permissões, rotação, tela de abertura e código fonte...</span>
                         </div>
                     </div>
                     <div class="step-item" id="step3">
@@ -393,7 +522,7 @@
             </div>
             <div class="modal-body">
                 <p class="settings-intro">
-                    Quando o site for publicado no <strong>Cloudflare Pages</strong>, essas configurações podem ser salvas direto nas <em>Variáveis de Ambiente</em> do Cloudflare. Mas para testar imediatamente ou usar direto no navegador, você pode preenchê-las aqui:
+                    Essas credenciais conectam o Sheet2APK ao seu repositório GitHub para compilar o APK gratuitamente via GitHub Actions:
                 </p>
                 <div class="form-group">
                     <label for="cfgRepo">Repositório GitHub (usuario/repositorio)</label>

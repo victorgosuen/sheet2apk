@@ -8,7 +8,7 @@ android {
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.webview.app"
+        applicationId "com.sheet.app"
         minSdk 24
         targetSdk 34
         versionCode 1
@@ -56,4 +56,5 @@ dependencies {
     implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
     implementation 'androidx.activity:activity-ktx:1.8.2'
     implementation 'androidx.webkit:webkit:1.10.0'
+    implementation 'com.airbnb.android:lottie:6.3.0'
 }

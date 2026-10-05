@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <bool name="keep_screen_on">false</bool>
+    <bool name="fullscreen">false</bool>
+    <bool name="pull_to_refresh">true</bool>
+    <bool name="has_splash">false</bool>
+    <bool name="splash_is_lottie">false</bool>
+</resources>

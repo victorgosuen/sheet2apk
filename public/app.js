@@ -1,5 +1,11 @@
 /**
  * Sheet2APK - Client-side Controller & Mockup Sync
+ * Suporte completo a:
+ * - Arrastar pastas inteiras diretamente com compactação in-browser (JSZip)
+ * - Tela de Abertura (Splash Screen) com Lottie JSON e Imagens
+ * - Trava de Rotação de Tela (Auto, Retrato, Paisagem)
+ * - Permissões Granulares (GPS, Câmera, Microfone)
+ * - Comportamentos de Tela (Keep Screen On, Fullscreen, Pull-to-refresh)
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -17,11 +23,35 @@ document.addEventListener('DOMContentLoaded', () => {
     const iconPlaceholder = document.getElementById('iconPlaceholder');
 
     // Phone Mockup Elements
+    const phoneFrame = document.getElementById('phoneFrame');
     const mockupTitle = document.getElementById('mockupTitle');
     const mockupHeader = document.getElementById('mockupHeader');
     const mockupStatusBar = document.getElementById('mockupStatusBar');
     const mockupFab = document.getElementById('mockupFab');
     const mockupAppIcon = document.getElementById('mockupAppIcon');
+    const btnTestSplash = document.getElementById('btnTestSplash');
+    const mockupSplashOverlay = document.getElementById('mockupSplashOverlay');
+    const mockupSplashAppName = document.getElementById('mockupSplashAppName');
+    const mockupSplashIcon = document.getElementById('mockupSplashIcon');
+
+    // Advanced Settings & Inputs
+    const screenOrientation = document.getElementById('screenOrientation');
+    const chkKeepScreenOn = document.getElementById('chkKeepScreenOn');
+    const chkFullscreen = document.getElementById('chkFullscreen');
+    const chkPullToRefresh = document.getElementById('chkPullToRefresh');
+    const chkPermLocation = document.getElementById('chkPermLocation');
+    const chkPermCamera = document.getElementById('chkPermCamera');
+    const chkPermMic = document.getElementById('chkPermMic');
+
+    // Splash Screen Elements
+    const splashFileInput = document.getElementById('splashFileInput');
+    const splashDropZone = document.getElementById('splashDropZone');
+    const btnSelectSplash = document.getElementById('btnSelectSplash');
+    const btnRemoveSplash = document.getElementById('btnRemoveSplash');
+    const splashTitle = document.getElementById('splashTitle');
+    const splashSub = document.getElementById('splashSub');
+    const splashPreviewImg = document.getElementById('splashPreviewImg');
+    const splashPlaceholder = document.getElementById('splashPlaceholder');
 
     // Modals & Buttons
     const btnHelp = document.getElementById('btnHelp');
@@ -46,22 +76,30 @@ document.addEventListener('DOMContentLoaded', () => {
     const errorMessage = document.getElementById('errorMessage');
     const errorLogsLink = document.getElementById('errorLogsLink');
 
-    // Modos de Origem (URL vs Pasta ZIP)
+    // Modos de Origem (URL vs Pasta/Diretório)
     const tabModeUrl = document.getElementById('tabModeUrl');
     const tabModeDir = document.getElementById('tabModeDir');
     const groupUrlMode = document.getElementById('groupUrlMode');
     const groupDirMode = document.getElementById('groupDirMode');
+    
+    // Pasta / ZIP Dropzone
+    const folderDropZone = document.getElementById('folderDropZone');
+    const folderPicker = document.getElementById('folderPicker');
     const zipFileInput = document.getElementById('zipFileInput');
-    const zipDropZone = document.getElementById('zipDropZone');
-    const zipFileName = document.getElementById('zipFileName');
-    const zipFileSub = document.getElementById('zipFileSub');
+    const btnSelectFolder = document.getElementById('btnSelectFolder');
+    const btnSelectZip = document.getElementById('btnSelectZip');
+    const dirStatusTitle = document.getElementById('dirStatusTitle');
+    const dirStatusSub = document.getElementById('dirStatusSub');
+    const dirHelpText = document.getElementById('dirHelpText');
 
     let activeMode = 'url';
     let currentZipBase64 = '';
     let currentIconBase64 = '';
+    let currentSplashBase64 = '';
+    let currentSplashType = 'none'; // 'none', 'lottie', 'image'
     let pollInterval = null;
 
-    // Alternar entre modo URL e modo Pasta ZIP
+    // Alternar entre modo URL e modo Pasta/Diretório
     tabModeUrl.addEventListener('click', () => {
         activeMode = 'url';
         tabModeUrl.classList.add('active');
@@ -78,50 +116,323 @@ document.addEventListener('DOMContentLoaded', () => {
         groupDirMode.style.display = 'flex';
     });
 
-    // Processamento do Arquivo ZIP
-    function handleZipFile(file) {
+    // ==========================================
+    // 1. PROCESSAMENTO DE PASTAS DIRETAS (JSZip)
+    // ==========================================
+    btnSelectFolder.addEventListener('click', () => folderPicker.click());
+    btnSelectZip.addEventListener('click', () => zipFileInput.click());
+
+    folderPicker.addEventListener('change', async (e) => {
+        if (e.target.files && e.target.files.length > 0) {
+            await processFileList(Array.from(e.target.files), 'Pasta Selecionada');
+        }
+    });
+
+    zipFileInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files[0]) {
+            handleDirectZipFile(e.target.files[0]);
+        }
+    });
+
+    function handleDirectZipFile(file) {
         if (!file || !file.name.toLowerCase().endsWith('.zip')) {
             alert('Por favor, selecione um arquivo compactado no formato .ZIP');
             return;
         }
-        zipFileName.textContent = 'Lendo arquivo...';
-        zipFileSub.textContent = file.name;
+        dirStatusTitle.textContent = 'Lendo arquivo ZIP...';
+        dirStatusSub.textContent = file.name;
 
         const reader = new FileReader();
         reader.onload = (e) => {
             currentZipBase64 = e.target.result;
-            zipFileName.textContent = file.name;
+            dirStatusTitle.textContent = file.name;
             const sizeMb = (file.size / (1024 * 1024)).toFixed(2);
-            zipFileSub.textContent = `Arquivo carregado (${sizeMb} MB) • Pronto para gerar APK offline!`;
-            zipDropZone.classList.add('file-selected');
+            dirStatusSub.textContent = `Arquivo carregado (${sizeMb} MB) • Pronto para gerar APK offline!`;
+            folderDropZone.classList.add('file-selected');
         };
         reader.readAsDataURL(file);
     }
 
-    zipFileInput.addEventListener('change', (e) => {
+    // Leitura recursiva de entradas de diretório arrastadas (webkitGetAsEntry)
+    async function readEntryRecursively(entry, path = '') {
+        const files = [];
+        if (entry.isFile) {
+            const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+            file.customRelativePath = path + file.name;
+            files.push(file);
+        } else if (entry.isDirectory) {
+            const dirReader = entry.createReader();
+            const entries = await new Promise((resolve, reject) => {
+                const results = [];
+                const readBatch = () => {
+                    dirReader.readEntries((batch) => {
+                        if (!batch.length) {
+                            resolve(results);
+                        } else {
+                            results.push(...batch);
+                            readBatch();
+                        }
+                    }, reject);
+                };
+                readBatch();
+            });
+
+            for (const childEntry of entries) {
+                const nested = await readEntryRecursively(childEntry, path + entry.name + '/');
+                files.push(...nested);
+            }
+        }
+        return files;
+    }
+
+    async function processFileList(files, folderName = 'Pasta Arrastada') {
+        if (!window.JSZip) {
+            alert('Biblioteca JSZip ainda não foi carregada. Tente novamente em instantes.');
+            return;
+        }
+
+        if (!files.length) return;
+
+        dirStatusTitle.textContent = 'Compactando arquivos no navegador...';
+        dirStatusSub.textContent = `Processando ${files.length} arquivos...`;
+        folderDropZone.classList.add('drag-over');
+
+        try {
+            const zip = new JSZip();
+            let hasIndexHtml = false;
+
+            // Determinar o menor caminho comum para não criar pastas aninhadas desnecessárias
+            for (const file of files) {
+                const relPath = file.customRelativePath || file.webkitRelativePath || file.name;
+                const normalized = relPath.replace(/\\/g, '/');
+
+                if (normalized.toLowerCase().endsWith('index.html')) {
+                    hasIndexHtml = true;
+                }
+
+                zip.file(normalized, file);
+            }
+
+            if (!hasIndexHtml) {
+                dirHelpText.innerHTML = '<span style="color: #F59E0B;">⚠️ Nenhum arquivo <code>index.html</code> foi encontrado na raiz da pasta. Certifique-se de que o ponto de entrada principal exista.</span>';
+            } else {
+                dirHelpText.innerHTML = '<span style="color: #34D399;">✓ Arquivo <code>index.html</code> detectado com sucesso!</span>';
+            }
+
+            // Gerar ZIP em base64 com compressão
+            const zipBase64 = await zip.generateAsync({
+                type: 'base64',
+                compression: 'DEFLATE',
+                compressionOptions: { level: 6 }
+            }, (meta) => {
+                dirStatusSub.textContent = `Compactando: ${meta.percent.toFixed(0)}%`;
+            });
+
+            currentZipBase64 = 'data:application/zip;base64,' + zipBase64;
+            const approxSizeMb = ((zipBase64.length * 0.75) / (1024 * 1024)).toFixed(2);
+
+            dirStatusTitle.textContent = folderName;
+            dirStatusSub.textContent = `${files.length} arquivos compactados (${approxSizeMb} MB) • Pronto!`;
+            folderDropZone.classList.remove('drag-over');
+            folderDropZone.classList.add('file-selected');
+
+        } catch (err) {
+            console.error(err);
+            dirStatusTitle.textContent = 'Erro ao processar pasta';
+            dirStatusSub.textContent = err.message;
+            folderDropZone.classList.remove('drag-over');
+        }
+    }
+
+    // Drag and Drop para Pastas e ZIPs
+    folderDropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        folderDropZone.classList.add('drag-over');
+    });
+
+    folderDropZone.addEventListener('dragleave', () => {
+        folderDropZone.classList.remove('drag-over');
+    });
+
+    folderDropZone.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        folderDropZone.classList.remove('drag-over');
+
+        const items = e.dataTransfer.items;
+        if (items && items.length > 0) {
+            const firstItem = items[0];
+            const entry = firstItem.webkitGetAsEntry ? firstItem.webkitGetAsEntry() : null;
+
+            if (entry && entry.isDirectory) {
+                const folderFiles = await readEntryRecursively(entry);
+                await processFileList(folderFiles, entry.name);
+                return;
+            }
+        }
+
+        // Se soltou um arquivo ZIP diretamente
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            const file = e.dataTransfer.files[0];
+            if (file.name.toLowerCase().endsWith('.zip')) {
+                handleDirectZipFile(file);
+            } else {
+                await processFileList(Array.from(e.dataTransfer.files), 'Arquivos Arrastados');
+            }
+        }
+    });
+
+    // ==========================================
+    // 2. TELA DE ABERTURA / SPLASH SCREEN CUSTOM
+    // ==========================================
+    btnSelectSplash.addEventListener('click', () => splashFileInput.click());
+
+    function handleSplashFile(file) {
+        if (!file) return;
+
+        const isJson = file.name.toLowerCase().endsWith('.json');
+        const isImg = file.type.startsWith('image/');
+
+        if (!isJson && !isImg) {
+            alert('Por favor, selecione um arquivo JSON de animação Lottie (.json) ou imagem (.png, .jpg).');
+            return;
+        }
+
+        if (isJson) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const text = e.target.result;
+                    const parsed = JSON.parse(text);
+                    const minified = JSON.stringify(parsed);
+                    
+                    // Converte para base64 UTF-8 seguro
+                    currentSplashBase64 = btoa(unescape(encodeURIComponent(minified)));
+                    currentSplashType = 'lottie';
+
+                    splashTitle.textContent = file.name;
+                    splashSub.textContent = `✨ Animação Lottie JSON (${(file.size / 1024).toFixed(1)} KB) configurada!`;
+                    splashPlaceholder.innerHTML = `<span style="font-size:1.5rem">✨</span>`;
+                    splashPreviewImg.style.display = 'none';
+                    btnRemoveSplash.style.display = 'flex';
+                    splashDropZone.classList.add('has-file');
+
+                    // Atualiza ícone da splash no mockup
+                    mockupSplashIcon.innerHTML = `<div style="font-size: 2.2rem;">✨</div>`;
+                } catch (jsonErr) {
+                    alert('Arquivo JSON inválido. Verifique o arquivo Lottie.');
+                }
+            };
+            reader.readAsText(file);
+        } else if (isImg) {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const maxDim = 512;
+                let w = img.width;
+                let h = img.height;
+                if (w > maxDim || h > maxDim) {
+                    if (w > h) {
+                        h = Math.round((h * maxDim) / w);
+                        w = maxDim;
+                    } else {
+                        w = Math.round((w * maxDim) / h);
+                        h = maxDim;
+                    }
+                }
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, w, h);
+
+                let base64 = canvas.toDataURL('image/png');
+                if (base64.length > 35000) {
+                    base64 = canvas.toDataURL('image/jpeg', 0.85);
+                }
+
+                currentSplashBase64 = base64;
+                currentSplashType = 'image';
+
+                splashPreviewImg.src = base64;
+                splashPreviewImg.style.display = 'block';
+                splashPlaceholder.style.display = 'none';
+                splashTitle.textContent = file.name;
+                splashSub.textContent = `🖼️ Imagem Estática (${w}x${h}px) configurada!`;
+                btnRemoveSplash.style.display = 'flex';
+                splashDropZone.classList.add('has-file');
+
+                // Atualiza mockup
+                mockupSplashIcon.innerHTML = `<img src="${base64}" alt="Splash Preview">`;
+            };
+            img.src = URL.createObjectURL(file);
+        }
+    }
+
+    splashFileInput.addEventListener('change', (e) => {
         if (e.target.files && e.target.files[0]) {
-            handleZipFile(e.target.files[0]);
+            handleSplashFile(e.target.files[0]);
         }
     });
 
-    zipDropZone.addEventListener('dragover', (e) => {
+    splashDropZone.addEventListener('dragover', (e) => {
         e.preventDefault();
-        zipDropZone.classList.add('drag-over');
+        splashDropZone.classList.add('drag-over');
     });
 
-    zipDropZone.addEventListener('dragleave', () => {
-        zipDropZone.classList.remove('drag-over');
+    splashDropZone.addEventListener('dragleave', () => {
+        splashDropZone.classList.remove('drag-over');
     });
 
-    zipDropZone.addEventListener('drop', (e) => {
+    splashDropZone.addEventListener('drop', (e) => {
         e.preventDefault();
-        zipDropZone.classList.remove('drag-over');
+        splashDropZone.classList.remove('drag-over');
         if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-            handleZipFile(e.dataTransfer.files[0]);
+            handleSplashFile(e.dataTransfer.files[0]);
         }
     });
 
-    // 1. Carregar Configurações salvas do LocalStorage
+    btnRemoveSplash.addEventListener('click', () => {
+        currentSplashBase64 = '';
+        currentSplashType = 'none';
+        splashFileInput.value = '';
+        splashTitle.textContent = 'Animação Lottie (.json) ou Imagem';
+        splashSub.textContent = 'Exibida durante o carregamento inicial do aplicativo';
+        splashPreviewImg.style.display = 'none';
+        splashPlaceholder.style.display = 'flex';
+        splashPlaceholder.innerHTML = `<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`;
+        btnRemoveSplash.style.display = 'none';
+        splashDropZone.classList.remove('has-file');
+        mockupSplashIcon.innerHTML = `<svg viewBox="0 0 24 24" width="36" height="36" fill="white"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`;
+    });
+
+    // Testar Splash Screen no Mockup
+    btnTestSplash.addEventListener('click', () => {
+        mockupSplashAppName.textContent = appNameInput.value.trim() || 'Minha Planilha App';
+        mockupSplashOverlay.style.background = themeColorInput.value;
+        mockupSplashOverlay.classList.add('show');
+
+        setTimeout(() => {
+            mockupSplashOverlay.classList.remove('show');
+        }, 2500);
+    });
+
+    // ==========================================
+    // 3. SINCRONIZAÇÃO DE ROTAÇÃO E TELA
+    // ==========================================
+    screenOrientation.addEventListener('change', (e) => {
+        if (e.target.value === 'landscape') {
+            phoneFrame.classList.add('landscape-mode');
+        } else {
+            phoneFrame.classList.remove('landscape-mode');
+        }
+    });
+
+    chkFullscreen.addEventListener('change', (e) => {
+        mockupStatusBar.style.display = e.target.checked ? 'none' : 'flex';
+    });
+
+    // ==========================================
+    // 4. CONFIGURAÇÕES GITHUB LOCALSTORAGE
+    // ==========================================
     cfgRepoInput.value = localStorage.getItem('sheet2apk_repo') || '';
     cfgTokenInput.value = localStorage.getItem('sheet2apk_token') || '';
 
@@ -132,10 +443,13 @@ document.addEventListener('DOMContentLoaded', () => {
         alert('Configurações salvas com sucesso!');
     });
 
-    // 2. Sincronização ao Vivo do Mockup
+    // ==========================================
+    // 5. SINCRONIZAÇÃO VISUAL DO MOCKUP
+    // ==========================================
     appNameInput.addEventListener('input', (e) => {
         const val = e.target.value.trim();
         mockupTitle.textContent = val || "Minha Planilha App";
+        mockupSplashAppName.textContent = val || "Minha Planilha App";
     });
 
     function applyThemeColor(hex) {
@@ -143,8 +457,8 @@ document.addEventListener('DOMContentLoaded', () => {
         colorHexText.textContent = hex.toUpperCase();
         mockupHeader.style.background = hex;
         mockupFab.style.background = hex;
+        mockupSplashOverlay.style.background = hex;
 
-        // Calcula tom mais escuro para a status bar
         const darkened = darkenColor(hex, 0.75);
         mockupStatusBar.style.background = darkened;
     }
@@ -175,7 +489,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return `rgb(${r}, ${g}, ${b})`;
     }
 
-    // 3. Processamento, Redimensionamento e Preview do Ícone (Máx 192x192 para caber no GitHub Actions)
+    // Ícone do App (Máx 192x192 para caber no GitHub Actions)
     function handleIconFile(file) {
         if (!file || !file.type.startsWith('image/')) {
             alert('Por favor, selecione um arquivo de imagem válido (PNG ou JPG).');
@@ -184,7 +498,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const img = new Image();
         img.onload = () => {
-            // Redimensiona para 192x192 (padrão Android xxxhdpi)
             const canvas = document.createElement('canvas');
             const size = 192;
             canvas.width = size;
@@ -192,11 +505,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, size, size);
 
-            // Gera PNG otimizado leve (< 20KB)
             let base64 = canvas.toDataURL('image/png');
-
-            // Se for muito pesado, comprime para JPEG para garantir que fique bem abaixo do limite de 60KB do GitHub
-            if (base64.length > 45000) {
+            if (base64.length > 30000) {
                 base64 = canvas.toDataURL('image/jpeg', 0.85);
             }
 
@@ -234,7 +544,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // 4. Modais
+    // Modais
     btnHelp.addEventListener('click', () => helpModal.classList.add('open'));
     btnCloseHelp.addEventListener('click', () => helpModal.classList.remove('open'));
 
@@ -251,7 +561,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.target === settingsModal) settingsModal.classList.remove('open');
     });
 
-    // 5. Envio do Formulário e Disparo do Build
+    // ==========================================
+    // 6. ENVIO DO FORMULÁRIO E DISPARO DO BUILD
+    // ==========================================
     apkForm.addEventListener('submit', async (e) => {
         e.preventDefault();
 
@@ -259,6 +571,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const appUrl = appUrlInput.value.trim();
         const packageName = packageNameInput.value.trim() || 'com.app.planilha';
         const themeColor = themeColorInput.value;
+        const orientation = screenOrientation.value;
+        const keepScreenOn = chkKeepScreenOn.checked;
+        const fullscreen = chkFullscreen.checked;
+        const pullToRefresh = chkPullToRefresh.checked;
+        const permLocation = chkPermLocation.checked;
+        const permCamera = chkPermCamera.checked;
+        const permMic = chkPermMic.checked;
+
         const clientRepo = localStorage.getItem('sheet2apk_repo') || '';
         const clientToken = localStorage.getItem('sheet2apk_token') || '';
 
@@ -269,7 +589,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } else if (activeMode === 'directory') {
             if (!currentZipBase64) {
-                alert('Por favor, selecione o arquivo .ZIP com os arquivos da sua pasta.');
+                alert('Por favor, arraste sua pasta ou selecione um arquivo .ZIP antes de continuar.');
                 return;
             }
         }
@@ -280,25 +600,34 @@ document.addEventListener('DOMContentLoaded', () => {
         setStep(1);
 
         try {
-            // Tenta chamar a API do Cloudflare Pages (/api/build)
-            // Se falhar ou estiver em servidor local estático, tenta fallback direto para o GitHub se tiver token
             let buildData = null;
+
+            const payload = {
+                app_name: appName,
+                app_url: appUrl,
+                build_mode: activeMode,
+                zip_base64: currentZipBase64,
+                package_name: packageName,
+                theme_color: themeColor,
+                icon_base64: currentIconBase64,
+                orientation: orientation,
+                perm_location: permLocation,
+                perm_camera: permCamera,
+                perm_mic: permMic,
+                keep_screen_on: keepScreenOn,
+                fullscreen: fullscreen,
+                pull_to_refresh: pullToRefresh,
+                splash_base64: currentSplashBase64,
+                splash_type: currentSplashType,
+                client_repo: clientRepo,
+                client_token: clientToken
+            };
 
             try {
                 const res = await fetch('/api/build', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        app_name: appName,
-                        app_url: appUrl,
-                        build_mode: activeMode,
-                        zip_base64: currentZipBase64,
-                        package_name: packageName,
-                        theme_color: themeColor,
-                        icon_base64: currentIconBase64,
-                        client_repo: clientRepo,
-                        client_token: clientToken
-                    })
+                    body: JSON.stringify(payload)
                 });
 
                 if (res.ok) {
@@ -311,17 +640,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Fallback Direto para GitHub API se o usuário tiver configurado Token no navegador
                 if (clientRepo && clientToken) {
                     console.log("Executando fallback direto via GitHub API...");
-                    buildData = await triggerGitHubDirectly({
-                        app_name: appName,
-                        app_url: appUrl,
-                        build_mode: activeMode,
-                        zip_base64: currentZipBase64,
-                        package_name: packageName,
-                        theme_color: themeColor,
-                        icon_base64: currentIconBase64,
-                        repo: clientRepo,
-                        token: clientToken
-                    });
+                    buildData = await triggerGitHubDirectly(payload);
                 } else {
                     throw apiErr;
                 }
@@ -353,17 +672,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Fallback direto via GitHub REST API para testes locais
+    // Fallback direto via GitHub REST API
     async function triggerGitHubDirectly(params) {
         const buildId = Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
         let source_tag = '';
 
         if (params.build_mode === 'directory' && params.zip_base64) {
             source_tag = `source-${buildId}`;
-            const createRel = await fetch(`https://api.github.com/repos/${params.repo}/releases`, {
+            const createRel = await fetch(`https://api.github.com/repos/${params.client_repo}/releases`, {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${params.token}`,
+                    'Authorization': `Bearer ${params.client_token}`,
                     'Accept': 'application/vnd.github+json',
                     'Content-Type': 'application/json'
                 },
@@ -374,10 +693,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const uint8Array = new Uint8Array(rawBytes.length);
             for (let i = 0; i < rawBytes.length; i++) uint8Array[i] = rawBytes.charCodeAt(i);
 
-            await fetch(`https://uploads.github.com/repos/${params.repo}/releases/${relData.id}/assets?name=source.zip`, {
+            await fetch(`https://uploads.github.com/repos/${params.client_repo}/releases/${relData.id}/assets?name=source.zip`, {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${params.token}`,
+                    'Authorization': `Bearer ${params.client_token}`,
                     'Accept': 'application/vnd.github+json',
                     'Content-Type': 'application/zip'
                 },
@@ -385,12 +704,18 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        const url = `https://api.github.com/repos/${params.repo}/actions/workflows/build-apk.yml/dispatches`;
+        const url = `https://api.github.com/repos/${params.client_repo}/actions/workflows/build-apk.yml/dispatches`;
+
+        let safeIcon = params.icon_base64 || '';
+        if (safeIcon.length > 30000) safeIcon = '';
+
+        let safeSplash = params.splash_base64 || '';
+        if (safeSplash.length > 30000) safeSplash = '';
 
         const res = await fetch(url, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${params.token}`,
+                'Authorization': `Bearer ${params.client_token}`,
                 'Accept': 'application/vnd.github+json',
                 'Content-Type': 'application/json'
             },
@@ -403,7 +728,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     source_tag: source_tag,
                     package_name: params.package_name,
                     theme_color: params.theme_color,
-                    icon_base64: params.icon_base64,
+                    icon_base64: safeIcon,
+                    orientation: params.orientation || 'auto',
+                    perm_location: String(params.perm_location),
+                    perm_camera: String(params.perm_camera),
+                    perm_mic: String(params.perm_mic),
+                    keep_screen_on: String(params.keep_screen_on),
+                    fullscreen: String(params.fullscreen),
+                    pull_to_refresh: String(params.pull_to_refresh),
+                    splash_base64: safeSplash,
+                    splash_type: params.splash_type || 'none',
                     build_id: buildId
                 }
             })
@@ -414,13 +748,12 @@ document.addEventListener('DOMContentLoaded', () => {
             throw new Error(`Falha no GitHub (${res.status}): ${err}`);
         }
 
-        return { success: true, build_id: buildId, repo: params.repo };
+        return { success: true, build_id: buildId, repo: params.client_repo };
     }
 
     // Consulta periódica de status
     async function checkBuildStatus(buildId, repo, token, appName) {
         try {
-            // Tenta consultar via /api/status ou diretamente no GitHub
             let data = null;
 
             try {
@@ -433,7 +766,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             if (!data) {
-                // Consulta direta à Release do GitHub
                 const releaseUrl = `https://api.github.com/repos/${repo}/releases/tags/v${buildId}`;
                 const rRes = await fetch(releaseUrl, {
                     headers: token ? { 'Authorization': `Bearer ${token}` } : {}
@@ -502,7 +834,6 @@ document.addEventListener('DOMContentLoaded', () => {
         btnDownloadApk.href = data.download_url;
         apkDetailsText.textContent = `${data.filename || appName + '.apk'} • Tamanho: ${data.size || 'Nativo'}`;
 
-        // Gera QR Code via serviço público leve
         const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(data.download_url)}`;
         qrCodeImg.src = qrUrl;
     }

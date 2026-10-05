@@ -1,7 +1,12 @@
 /**
  * Cloudflare Pages Function: /api/build
  * Dispara o workflow do GitHub Actions para compilar o APK
- * Suporta modo URL (Web App Google) e modo Diretório (Pasta ZIP com HTML/JS/CSS)
+ * Suporta:
+ * - Modo URL (Web App Google) e Modo Diretório (Pasta ZIP com HTML/JS/CSS)
+ * - Trava de Orientação (Auto, Retrato, Paisagem)
+ * - Permissões Granulares (GPS, Câmera, Microfone)
+ * - Comportamentos de Tela (Keep Screen On, Fullscreen, Pull-to-refresh)
+ * - Splash Screen Customizada (Lottie JSON ou Imagem)
  */
 
 function base64ToUint8Array(base64) {
@@ -23,7 +28,16 @@ export async function onRequestPost(context) {
             zip_base64, 
             package_name, 
             theme_color, 
-            icon_base64, 
+            icon_base64,
+            orientation = 'auto',
+            perm_location = 'false',
+            perm_camera = 'false',
+            perm_mic = 'false',
+            keep_screen_on = 'false',
+            fullscreen = 'false',
+            pull_to_refresh = 'true',
+            splash_base64 = '',
+            splash_type = 'none',
             client_token, 
             client_repo 
         } = body;
@@ -37,7 +51,7 @@ export async function onRequestPost(context) {
         }
 
         if (build_mode === 'directory' && (!zip_base64 || zip_base64.length < 50)) {
-            return new Response(JSON.stringify({ error: 'Nenhum arquivo ZIP da pasta do sistema foi fornecido.' }), {
+            return new Response(JSON.stringify({ error: 'Nenhum arquivo ou pasta foi fornecido para a compilação.' }), {
                 status: 400,
                 headers: { 'Content-Type': 'application/json' }
             });
@@ -106,14 +120,19 @@ export async function onRequestPost(context) {
 
             if (!uploadRes.ok) {
                 const err = await uploadRes.text();
-                throw new Error(`Falha ao carregar o arquivo ZIP no GitHub: ${err}`);
+                throw new Error(`Falha ao carregar os arquivos compactados no GitHub: ${err}`);
             }
         }
 
-        // O GitHub Actions limita o payload de inputs em 65KB.
+        // O GitHub Actions limita o payload total de inputs em ~65KB.
         let safeIcon = icon_base64 || '';
-        if (safeIcon.length > 55000) {
+        if (safeIcon.length > 30000) {
             safeIcon = '';
+        }
+
+        let safeSplash = splash_base64 || '';
+        if (safeSplash.length > 30000) {
+            safeSplash = '';
         }
 
         const dispatchUrl = `https://api.github.com/repos/${repoFullName}/actions/workflows/build-apk.yml/dispatches`;
@@ -136,6 +155,15 @@ export async function onRequestPost(context) {
                     package_name: package_name || 'com.sheet.app',
                     theme_color: theme_color || '#0F9D58',
                     icon_base64: safeIcon,
+                    orientation: orientation || 'auto',
+                    perm_location: String(perm_location),
+                    perm_camera: String(perm_camera),
+                    perm_mic: String(perm_mic),
+                    keep_screen_on: String(keep_screen_on),
+                    fullscreen: String(fullscreen),
+                    pull_to_refresh: String(pull_to_refresh),
+                    splash_base64: safeSplash,
+                    splash_type: splash_type || 'none',
                     build_id: build_id
                 }
             })

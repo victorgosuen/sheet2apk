@@ -2,14 +2,24 @@
 """
 Script de preparação e injeção de parâmetros no projeto Android.
 Executado antes do ./gradlew assembleRelease no GitHub Actions.
+Suporta:
+- Nome, URL, Pacote, Cor de Tema, Ícone Customizado
+- Modo Diretório (Offline com WebViewAssetLoader)
+- Tela de Abertura Customizada (Lottie JSON ou Imagem PNG/JPG)
+- Trava de Rotação de Tela (Auto, Retrato, Paisagem)
+- Permissões Granulares (Localização/GPS, Câmera, Microfone)
+- Comportamentos de Tela (Keep Screen On, Tela Cheia Imersiva, Pull-to-refresh)
 """
 
 import argparse
 import base64
+import json
 import os
 import re
+import shutil
 import sys
 import xml.sax.saxutils as saxutils
+import zipfile
 
 # Garantir suporte UTF-8 no stdout
 if hasattr(sys.stdout, 'reconfigure'):
@@ -37,6 +47,29 @@ def darken_color(hex_str, factor=0.8):
     except Exception:
         return "#0B8043"
 
+def str_to_bool(val):
+    if isinstance(val, bool):
+        return val
+    return str(val).lower() in ("true", "1", "yes", "sim")
+
+def update_bools_xml(bools_path, bool_values):
+    if not os.path.exists(bools_path):
+        return
+    with open(bools_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    for name, val in bool_values.items():
+        val_str = "true" if val else "false"
+        pattern = rf'<bool name="{name}">.*?</bool>'
+        if re.search(pattern, content):
+            content = re.sub(pattern, f'<bool name="{name}">{val_str}</bool>', content)
+        else:
+            content = content.replace('</resources>', f'    <bool name="{name}">{val_str}</bool>\n</resources>')
+
+    with open(bools_path, 'w', encoding='utf-8') as f:
+        f.write(content)
+    print(f"[OK] bools.xml atualizado com valores: {bool_values}")
+
 def main():
     parser = argparse.ArgumentParser(description="Configura os parâmetros do app Android")
     parser.add_argument("--app-name", default="Planilha App", help="Nome do Aplicativo")
@@ -47,27 +80,41 @@ def main():
     parser.add_argument("--theme-color", default="#0F9D58", help="Cor primária em hexadecimal")
     parser.add_argument("--icon-base64", default="", help="Ícone do app em formato Base64 PNG/JPG")
     
+    # Novos parâmetros avançados
+    parser.add_argument("--orientation", default="auto", choices=["auto", "portrait", "landscape"], help="Orientação de tela")
+    parser.add_argument("--perm-location", default="false", help="Permissão de Localização GPS")
+    parser.add_argument("--perm-camera", default="false", help="Permissão de Câmera")
+    parser.add_argument("--perm-mic", default="false", help="Permissão de Microfone")
+    parser.add_argument("--keep-screen-on", default="false", help="Manter tela sempre acesa")
+    parser.add_argument("--fullscreen", default="false", help="Modo tela cheia imersivo")
+    parser.add_argument("--pull-to-refresh", default="true", help="Puxar para atualizar tela")
+    parser.add_argument("--splash-base64", default="", help="Conteúdo Base64 da Splash Screen")
+    parser.add_argument("--splash-type", default="none", choices=["none", "lottie", "image"], help="Tipo de Splash")
+
     args = parser.parse_args()
 
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'android-template'))
     app_res = os.path.join(root_dir, 'app', 'src', 'main', 'res')
+    assets_main = os.path.join(root_dir, 'app', 'src', 'main', 'assets')
+    os.makedirs(assets_main, exist_ok=True)
+    os.makedirs(os.path.join(app_res, 'drawable'), exist_ok=True)
     
     print(f"==> Configurando projeto em: {root_dir}")
     print(f"==> Modo de Build: {args.build_mode}")
     print(f"==> Nome do App: {args.app_name}")
     print(f"==> Pacote: {args.package_name}")
+    print(f"==> Orientação: {args.orientation}")
 
     final_url = args.app_url
+    has_splash = False
+    splash_is_lottie = False
 
     # Se o modo for Diretório/Pasta, descompacta os arquivos em assets/www
     if args.build_mode == "directory" or args.zip_file:
-        assets_dir = os.path.join(root_dir, 'app', 'src', 'main', 'assets', 'www')
+        assets_dir = os.path.join(assets_main, 'www')
         os.makedirs(assets_dir, exist_ok=True)
 
         if args.zip_file and os.path.exists(args.zip_file):
-            import zipfile
-            import shutil
-
             print(f"==> Extraindo arquivos locais para: {assets_dir}")
             with zipfile.ZipFile(args.zip_file, 'r') as zf:
                 zf.extractall(assets_dir)
@@ -81,10 +128,61 @@ def main():
                 os.rmdir(subfolder)
 
             print("[OK] Arquivos do diretório descompactados com sucesso.")
+
+            # Verifica se o ZIP inclui arquivo de splash empacotado (.sheet2apk/splash.json ou splash.json)
+            possible_lotties = [
+                os.path.join(assets_dir, '.sheet2apk', 'splash.json'),
+                os.path.join(assets_dir, 'splash.json')
+            ]
+            for pl in possible_lotties:
+                if os.path.exists(pl):
+                    shutil.copyfile(pl, os.path.join(assets_main, 'splash.json'))
+                    has_splash = True
+                    splash_is_lottie = True
+                    print("[OK] Splash Lottie JSON detectada e configurada a partir dos arquivos do projeto.")
+                    break
+
+            possible_images = [
+                os.path.join(assets_dir, '.sheet2apk', 'splash.png'),
+                os.path.join(assets_dir, 'splash.png'),
+                os.path.join(assets_dir, 'splash.jpg')
+            ]
+            for pi in possible_images:
+                if os.path.exists(pi) and not has_splash:
+                    shutil.copyfile(pi, os.path.join(app_res, 'drawable', 'splash_custom.png'))
+                    has_splash = True
+                    splash_is_lottie = False
+                    print("[OK] Splash Imagem detectada e configurada a partir dos arquivos do projeto.")
+                    break
         
         final_url = "https://appassets.androidplatform.net/assets/www/index.html"
 
     print(f"==> URL Final configurada: {final_url}")
+
+    # Processamento de Splash Screen via parâmetro direto
+    if args.splash_base64 and len(args.splash_base64.strip()) > 10:
+        try:
+            raw_base64 = args.splash_base64.split(',')[-1]
+            splash_bytes = base64.b64decode(raw_base64)
+
+            if args.splash_type == "lottie":
+                # Salvar como splash.json em assets
+                splash_json_path = os.path.join(assets_main, 'splash.json')
+                with open(splash_json_path, 'wb') as f:
+                    f.write(splash_bytes)
+                has_splash = True
+                splash_is_lottie = True
+                print("[OK] Splash Screen Lottie JSON gravada com sucesso.")
+            elif args.splash_type == "image":
+                # Salvar como splash_custom.png em res/drawable
+                splash_img_path = os.path.join(app_res, 'drawable', 'splash_custom.png')
+                with open(splash_img_path, 'wb') as f:
+                    f.write(splash_bytes)
+                has_splash = True
+                splash_is_lottie = False
+                print("[OK] Splash Screen Imagem gravada com sucesso em drawable/splash_custom.png.")
+        except Exception as e:
+            print(f"! Erro ao processar splash screen ({e}).")
 
     # 1. Atualizar strings.xml (app_name e app_url)
     strings_path = os.path.join(app_res, 'values', 'strings.xml')
@@ -127,13 +225,94 @@ def main():
             f.write(content)
         print("[OK] colors.xml atualizado.")
 
-    # 3. Atualizar app/build.gradle (applicationId)
+    # 3. Atualizar bools.xml (Comportamentos da Tela e Splash)
+    bools_path = os.path.join(app_res, 'values', 'bools.xml')
+    bool_values = {
+        'keep_screen_on': str_to_bool(args.keep_screen_on),
+        'fullscreen': str_to_bool(args.fullscreen),
+        'pull_to_refresh': str_to_bool(args.pull_to_refresh),
+        'has_splash': has_splash,
+        'splash_is_lottie': splash_is_lottie
+    }
+    update_bools_xml(bools_path, bool_values)
+
+    # 4. Atualizar AndroidManifest.xml (Permissões Granulares e Trava de Orientação)
+    manifest_path = os.path.join(root_dir, 'app', 'src', 'main', 'AndroidManifest.xml')
+    if os.path.exists(manifest_path):
+        with open(manifest_path, 'r', encoding='utf-8') as f:
+            m_content = f.read()
+
+        # Configuração de Orientação da Activity
+        orientation_attr = ''
+        if args.orientation == "portrait":
+            orientation_attr = 'android:screenOrientation="portrait"'
+        elif args.orientation == "landscape":
+            orientation_attr = 'android:screenOrientation="landscape"'
+        else:
+            orientation_attr = 'android:screenOrientation="unspecified"'
+
+        # Substitui ou insere android:screenOrientation no MainActivity
+        if 'android:screenOrientation=' in m_content:
+            m_content = re.sub(r'android:screenOrientation="[^"]*"', orientation_attr, m_content)
+        else:
+            m_content = m_content.replace(
+                'android:name=".MainActivity"',
+                f'android:name=".MainActivity"\n            {orientation_attr}'
+            )
+
+        # Montagem das Permissões Granulares
+        permissions_xml = [
+            '    <uses-permission android:name="android.permission.INTERNET" />',
+            '    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />',
+            '    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />',
+            '    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />',
+            '    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />'
+        ]
+
+        if str_to_bool(args.perm_camera):
+            permissions_xml.extend([
+                '    <uses-permission android:name="android.permission.CAMERA" />',
+                '    <uses-feature android:name="android.hardware.camera" android:required="false" />',
+                '    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />'
+            ])
+            print("[OK] Permissão de Câmera habilitada.")
+
+        if str_to_bool(args.perm_location):
+            permissions_xml.extend([
+                '    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />',
+                '    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />',
+                '    <uses-feature android:name="android.hardware.location.gps" android:required="false" />'
+            ])
+            print("[OK] Permissão de Localização GPS habilitada.")
+
+        if str_to_bool(args.perm_mic):
+            permissions_xml.extend([
+                '    <uses-permission android:name="android.permission.RECORD_AUDIO" />',
+                '    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />',
+                '    <uses-feature android:name="android.hardware.microphone" android:required="false" />'
+            ])
+            print("[OK] Permissão de Microfone habilitada.")
+
+        permissions_block = "\n".join(permissions_xml)
+
+        # Substitui todo o bloco de permissões antes do <application
+        m_content = re.sub(
+            r'(<manifest[^>]*>).*?(<application)',
+            rf'\1\n\n{permissions_block}\n\n    \2',
+            m_content,
+            flags=re.DOTALL
+        )
+
+        with open(manifest_path, 'w', encoding='utf-8') as f:
+            f.write(m_content)
+        print("[OK] AndroidManifest.xml atualizado com orientacao e permissoes granulares.")
+
+    # 5. Atualizar app/build.gradle (applicationId)
     build_gradle_path = os.path.join(root_dir, 'app', 'build.gradle')
     if os.path.exists(build_gradle_path):
         with open(build_gradle_path, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        # Validação básica de applicationId
         pkg = re.sub(r'[^a-zA-Z0-9._]', '', args.package_name)
         if not pkg or '.' not in pkg:
             pkg = "com.sheet.app"
@@ -148,10 +327,9 @@ def main():
             f.write(content)
         print(f"[OK] app/build.gradle atualizado com pacote: {pkg}")
 
-    # 4. Processar Ícone (se enviado em base64)
+    # 6. Processar Ícone (se enviado em base64)
     if args.icon_base64 and len(args.icon_base64.strip()) > 50:
         try:
-            # Remover header de data url caso exista (ex: data:image/png;base64,...)
             raw_base64 = args.icon_base64.split(',')[-1]
             icon_bytes = base64.b64decode(raw_base64)
 
@@ -176,7 +354,6 @@ def main():
                     resized.save(os.path.join(target_dir, 'ic_launcher_round.png'), "PNG")
                 print("[OK] Ícones redimensionados com sucesso via Pillow.")
             except ImportError:
-                # Fallback sem Pillow: escreve o binário original em todos os diretórios
                 for folder in sizes.keys():
                     target_dir = os.path.join(app_res, folder)
                     os.makedirs(target_dir, exist_ok=True)
@@ -188,12 +365,11 @@ def main():
         except Exception as e:
             print(f"! Aviso: Não foi possível processar o ícone personalizado ({e}). Mantendo padrão.")
 
-    # 5. Gerar nome de arquivo seguro para o APK
+    # 7. Gerar nome de arquivo seguro para o APK
     safe_filename = re.sub(r'[^a-zA-Z0-9_\-]', '_', args.app_name).strip('_')
     if not safe_filename:
         safe_filename = "app-release"
 
-    # Exportar variáveis para o GitHub Actions se disponível
     github_output = os.getenv('GITHUB_OUTPUT')
     if github_output:
         with open(github_output, 'a') as f:

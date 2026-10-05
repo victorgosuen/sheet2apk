@@ -74,7 +74,10 @@ const server = http.createServer(async (req, res) => {
                 const dispatchUrl = `https://api.github.com/repos/${repo}/actions/workflows/build-apk.yml/dispatches`;
 
                 let safeIcon = body.icon_base64 || '';
-                if (safeIcon.length > 55000) safeIcon = '';
+                if (safeIcon.length > 30000) safeIcon = '';
+
+                let safeSplash = body.splash_base64 || '';
+                if (safeSplash.length > 30000) safeSplash = '';
 
                 const ghRes = await fetch(dispatchUrl, {
                     method: 'POST',
@@ -94,6 +97,15 @@ const server = http.createServer(async (req, res) => {
                             package_name: body.package_name || 'com.sheet.app',
                             theme_color: body.theme_color || '#0F9D58',
                             icon_base64: safeIcon,
+                            orientation: body.orientation || 'auto',
+                            perm_location: String(body.perm_location || 'false'),
+                            perm_camera: String(body.perm_camera || 'false'),
+                            perm_mic: String(body.perm_mic || 'false'),
+                            keep_screen_on: String(body.keep_screen_on || 'false'),
+                            fullscreen: String(body.fullscreen || 'false'),
+                            pull_to_refresh: String(body.pull_to_refresh ?? 'true'),
+                            splash_base64: safeSplash,
+                            splash_type: body.splash_type || 'none',
                             build_id: build_id
                         }
                     })

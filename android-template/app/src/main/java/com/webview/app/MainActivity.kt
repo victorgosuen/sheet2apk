@@ -13,18 +13,27 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.view.View
+import android.view.WindowManager
 import android.webkit.*
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.RelativeLayout
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import androidx.webkit.WebViewAssetLoader
+import com.airbnb.lottie.LottieAnimationView
 
 class MainActivity : AppCompatActivity() {
 
@@ -33,10 +42,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var progressBar: ProgressBar
     private lateinit var layoutOffline: LinearLayout
     private lateinit var btnRetry: Button
+    private lateinit var layoutSplash: RelativeLayout
+    private lateinit var lottieSplash: LottieAnimationView
+    private lateinit var imgSplash: ImageView
     private lateinit var assetLoader: WebViewAssetLoader
 
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var webAppUrl: String = ""
+    private var splashDismissed = false
 
     // Gerenciador de Seleção de Arquivos (Fotos, Documentos, etc.)
     private val filePickerLauncher = registerForActivityResult(
@@ -60,6 +73,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // Launcher para Permissões Granulares em tempo de execução
+    private val requestPermissionsLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        // Permissões tratadas pelo sistema operacional
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -71,11 +91,36 @@ class MainActivity : AppCompatActivity() {
             .build()
 
         initViews()
+        applyScreenBehaviors()
+        checkAndRequestPermissions()
+        setupSplash()
         setupWebView()
         setupSwipeRefresh()
         setupBackNavigation()
 
         loadWebApp()
+    }
+
+    private fun checkAndRequestPermissions() {
+        try {
+            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(PackageManager.GET_PERMISSIONS.toLong()))
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageInfo(packageName, PackageManager.GET_PERMISSIONS)
+            }
+            val permissions = info.requestedPermissions ?: return
+            val needed = permissions.filter { perm ->
+                perm != Manifest.permission.INTERNET &&
+                perm != Manifest.permission.ACCESS_NETWORK_STATE &&
+                ContextCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED
+            }
+            if (needed.isNotEmpty()) {
+                requestPermissionsLauncher.launch(needed.toTypedArray())
+            }
+        } catch (e: Exception) {
+            // Ignorado em caso de incompatibilidade
+        }
     }
 
     private fun initViews() {
@@ -84,11 +129,74 @@ class MainActivity : AppCompatActivity() {
         progressBar = findViewById(R.id.progressBar)
         layoutOffline = findViewById(R.id.layoutOffline)
         btnRetry = findViewById(R.id.btnRetry)
+        layoutSplash = findViewById(R.id.layoutSplash)
+        lottieSplash = findViewById(R.id.lottieSplash)
+        imgSplash = findViewById(R.id.imgSplash)
 
         btnRetry.setOnClickListener {
             layoutOffline.visibility = View.GONE
             webView.visibility = View.VISIBLE
             loadWebApp()
+        }
+    }
+
+    private fun applyScreenBehaviors() {
+        // 1. Manter tela sempre ligada (Keep Screen On)
+        if (resources.getBoolean(R.bool.keep_screen_on)) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+
+        // 2. Modo Tela Cheia Imersivo (Oculta barra de status)
+        if (resources.getBoolean(R.bool.fullscreen)) {
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            WindowInsetsControllerCompat(window, window.decorView).let { controller ->
+                controller.hide(WindowInsetsCompat.Type.systemBars())
+                controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        }
+    }
+
+    private fun setupSplash() {
+        val hasSplash = resources.getBoolean(R.bool.has_splash)
+        if (!hasSplash) {
+            layoutSplash.visibility = View.GONE
+            return
+        }
+
+        layoutSplash.visibility = View.VISIBLE
+        val isLottie = resources.getBoolean(R.bool.splash_is_lottie)
+
+        if (isLottie) {
+            try {
+                lottieSplash.visibility = View.VISIBLE
+                lottieSplash.setAnimation("splash.json")
+                lottieSplash.playAnimation()
+            } catch (e: Exception) {
+                imgSplash.visibility = View.VISIBLE
+            }
+        } else {
+            val customImgRes = resources.getIdentifier("splash_custom", "drawable", packageName)
+            if (customImgRes != 0) {
+                imgSplash.setImageResource(customImgRes)
+            }
+            imgSplash.visibility = View.VISIBLE
+        }
+
+        // Garante que a splash não trave por mais de 2.5s se a internet estiver lenta
+        Handler(Looper.getMainLooper()).postDelayed({
+            dismissSplash()
+        }, 2500)
+    }
+
+    private fun dismissSplash() {
+        if (!splashDismissed && layoutSplash.visibility == View.VISIBLE) {
+            splashDismissed = true
+            layoutSplash.animate()
+                .alpha(0f)
+                .setDuration(450)
+                .withEndAction {
+                    layoutSplash.visibility = View.GONE
+                }
         }
     }
 
@@ -125,6 +233,7 @@ class MainActivity : AppCompatActivity() {
                     progressBar.progress = newProgress
                 } else {
                     progressBar.visibility = View.GONE
+                    dismissSplash()
                 }
             }
 
@@ -155,6 +264,11 @@ class MainActivity : AppCompatActivity() {
                 callback: GeolocationPermissions.Callback?
             ) {
                 callback?.invoke(origin, true, false)
+            }
+
+            override fun onPermissionRequest(request: PermissionRequest?) {
+                // Concede permissões web caso o app tenha solicitado (câmera, microfone)
+                request?.grant(request.resources)
             }
         }
 
@@ -198,6 +312,7 @@ class MainActivity : AppCompatActivity() {
                 super.onPageFinished(view, url)
                 swipeRefreshLayout.isRefreshing = false
                 progressBar.visibility = View.GONE
+                dismissSplash()
             }
 
             override fun onReceivedError(
@@ -210,6 +325,7 @@ class MainActivity : AppCompatActivity() {
                 if (!isLocalApp && request?.isForMainFrame == true && !isOnline()) {
                     webView.visibility = View.GONE
                     layoutOffline.visibility = View.VISIBLE
+                    dismissSplash()
                 }
             }
         }
@@ -239,8 +355,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupSwipeRefresh() {
+        val pullEnabled = resources.getBoolean(R.bool.pull_to_refresh)
+        swipeRefreshLayout.isEnabled = pullEnabled
+
         swipeRefreshLayout.setOnRefreshListener {
-            if (isOnline()) {
+            if (isOnline() || webAppUrl.contains("appassets.androidplatform.net")) {
                 webView.reload()
             } else {
                 swipeRefreshLayout.isRefreshing = false
@@ -271,6 +390,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             webView.visibility = View.GONE
             layoutOffline.visibility = View.VISIBLE
+            dismissSplash()
         }
     }
 
