@@ -17,6 +17,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const colorHexText = document.getElementById('colorHexText');
     const colorPresets = document.querySelectorAll('.color-preset');
     const packageNameInput = document.getElementById('packageName');
+    const btnUniquePackage = document.getElementById('btnUniquePackage');
+    let packageManuallyEdited = false;
     const iconFileInput = document.getElementById('iconFileInput');
     const dropZone = document.getElementById('dropZone');
     const iconPreviewImg = document.getElementById('iconPreviewImg');
@@ -446,10 +448,39 @@ document.addEventListener('DOMContentLoaded', () => {
     // ==========================================
     // 5. SINCRONIZAÇÃO VISUAL DO MOCKUP
     // ==========================================
+    function slugifyPackage(text) {
+        let slug = (text || '').toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]/g, '_')
+            .replace(/_+/g, '_')
+            .replace(/^_|_$/g, '');
+        if (!slug) slug = 'app';
+        return `com.sheet.${slug}`;
+    }
+
+    // Inicializa o Package ID com base no nome padrão do app
+    packageNameInput.value = slugifyPackage(appNameInput.value);
+
+    packageNameInput.addEventListener('input', () => {
+        packageManuallyEdited = true;
+    });
+
+    if (btnUniquePackage) {
+        btnUniquePackage.addEventListener('click', () => {
+            const baseSlug = slugifyPackage(appNameInput.value);
+            const rand = Math.random().toString(36).substring(2, 6);
+            packageNameInput.value = `${baseSlug}_${rand}`;
+            packageManuallyEdited = true;
+        });
+    }
+
     appNameInput.addEventListener('input', (e) => {
         const val = e.target.value.trim();
         mockupTitle.textContent = val || "Minha Planilha App";
         mockupSplashAppName.textContent = val || "Minha Planilha App";
+        if (!packageManuallyEdited) {
+            packageNameInput.value = slugifyPackage(val);
+        }
     });
 
     function applyThemeColor(hex) {

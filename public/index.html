@@ -202,9 +202,14 @@
                         <div class="advanced-content">
                             <!-- Package Name -->
                             <div class="form-group">
-                                <label for="packageName">Identificador do Pacote (Package Name)</label>
-                                <input type="text" id="packageName" name="packageName" value="com.app.planilha" placeholder="com.suaempresa.app">
-                                <span class="field-hint">Deve ter pelo menos 2 segmentos separados por ponto (ex: com.empresa.app).</span>
+                                <label for="packageName">Identificador do Pacote (Package ID)</label>
+                                <div style="display: flex; gap: 8px;">
+                                    <input type="text" id="packageName" name="packageName" value="com.sheet.minha_planilha_app" placeholder="com.empresa.app" style="flex: 1;">
+                                    <button type="button" class="btn-select-file btn-outline" id="btnUniquePackage" title="Gera um sufixo aleatório para permitir instalar múltiplos apps sem substituir">
+                                        Novo ID Único
+                                    </button>
+                                </div>
+                                <span class="field-hint">💡 O Android usa este ID para diferenciar os aplicativos no celular. Se dois APKs tiverem o mesmo ID, um substituirá o outro. Gerado automaticamente pelo nome do app!</span>
                             </div>
 
                             <!-- Screen Orientation -->

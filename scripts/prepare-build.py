@@ -313,9 +313,25 @@ def main():
         with open(build_gradle_path, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        pkg = re.sub(r'[^a-zA-Z0-9._]', '', args.package_name)
-        if not pkg or '.' not in pkg:
-            pkg = "com.sheet.app"
+        # Validação robusta de applicationId para Android
+        raw_pkg = args.package_name.strip() if args.package_name else ""
+        clean_parts = []
+        for part in raw_pkg.split('.'):
+            p = re.sub(r'[^a-zA-Z0-9_]', '', part).strip('_')
+            if p and p[0].isdigit():
+                p = f"app_{p}"
+            if p:
+                clean_parts.append(p)
+
+        if len(clean_parts) < 2:
+            safe_slug = re.sub(r'[^a-zA-Z0-9_]', '', args.app_name.lower().replace(' ', '_')).strip('_')
+            if safe_slug and safe_slug[0].isdigit():
+                safe_slug = f"app_{safe_slug}"
+            if not safe_slug:
+                safe_slug = "app"
+            pkg = f"com.sheet.{safe_slug}"
+        else:
+            pkg = ".".join(clean_parts)
 
         content = re.sub(
             r'applicationId\s+["\'][^"\']+["\']',
