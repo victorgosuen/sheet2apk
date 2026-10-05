@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sheet2APK • Transforme Google Planilhas Web em Aplicativo Android</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Header / Navbar -->
+    <header class="navbar">
+        <div class="nav-container">
+            <div class="brand">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="18" height="18" rx="4" />
+                        <path d="M3 9h18M9 21V9" />
+                    </svg>
+                </div>
+                <div class="brand-text">
+                    <h1>Sheet2APK</h1>
+                    <span class="badge-free">100% Gratuito</span>
+                </div>
+            </div>
+            <div class="nav-actions">
+                <button id="btnHelp" class="btn-secondary" title="Como obter o link do Google Sheets">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                    </svg>
+                    <span>Tutorial do Link</span>
+                </button>
+                <button id="btnSettings" class="btn-icon" title="Configurações de Conexão com GitHub">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-wrapper">
+        <div class="content-container">
+            <!-- Left Column: Form -->
+            <section class="form-section">
+                <div class="hero-text">
+                    <h2>Converta seu Web App em um <span>APK Nativo</span></h2>
+                    <p>Compilador Android Gradle nativo. 100% gratuito utilizando a infraestrutura do Cloudflare e GitHub Actions.</p>
+                </div>
+
+                <form id="apkForm" class="card-form">
+                    <!-- App Name -->
+                    <div class="form-group">
+                        <label for="appName">Nome do Aplicativo</label>
+                        <div class="input-wrapper">
+                            <input type="text" id="appName" name="appName" placeholder="Ex: Gestão de Vendas" required maxlength="40" value="Minha Planilha App">
+                        </div>
+                        <span class="field-hint">Este é o nome que aparecerá abaixo do ícone no Android.</span>
+                    </div>
+
+                    <!-- Web App URL -->
+                    <div class="form-group">
+                        <label for="appUrl">URL do Web App (Google Apps Script / Planilha)</label>
+                        <div class="input-wrapper">
+                            <input type="url" id="appUrl" name="appUrl" placeholder="https://script.google.com/macros/s/.../exec" required>
+                        </div>
+                        <span class="field-hint">Cole o link gerado em <em>Implantar &gt; Nova Implantação &gt; App da Web</em>.</span>
+                    </div>
+
+                    <!-- App Icon Upload -->
+                    <div class="form-group">
+                        <label>Ícone do Aplicativo (PNG ou JPG)</label>
+                        <div class="icon-upload-container" id="dropZone">
+                            <input type="file" id="iconFileInput" accept="image/png, image/jpeg" style="display: none;">
+                            <div class="icon-preview-box" id="iconPreviewBox">
+                                <img id="iconPreviewImg" src="" alt="Prévia do Ícone" style="display: none;">
+                                <div id="iconPlaceholder">
+                                    <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2">
+                                        <rect x="3" y="3" width="18" height="18" rx="4" />
+                                        <circle cx="8.5" cy="8.5" r="1.5" />
+                                        <polyline points="21 15 16 10 5 21" />
+                                    </svg>
+                                    <span>Clique ou arraste seu ícone aqui</span>
+                                </div>
+                            </div>
+                            <button type="button" class="btn-select-file" onclick="document.getElementById('iconFileInput').click()">
+                                Escolher Imagem
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Theme Color -->
+                    <div class="form-group">
+                        <label for="themeColor">Cor do Tema (Barra de Status e Destaques)</label>
+                        <div class="color-picker-group">
+                            <div class="color-preset-list">
+                                <button type="button" class="color-preset active" data-color="#0F9D58" style="background: #0F9D58;" title="Verde Google Planilhas"></button>
+                                <button type="button" class="color-preset" data-color="#1A73E8" style="background: #1A73E8;" title="Azul Google"></button>
+                                <button type="button" class="color-preset" data-color="#7C3AED" style="background: #7C3AED;" title="Roxo Moderno"></button>
+                                <button type="button" class="color-preset" data-color="#EA580C" style="background: #EA580C;" title="Laranja Intenso"></button>
+                                <button type="button" class="color-preset" data-color="#0F172A" style="background: #0F172A;" title="Dark Slate"></button>
+                            </div>
+                            <div class="custom-color-input">
+                                <input type="color" id="themeColor" name="themeColor" value="#0F9D58">
+                                <span id="colorHexText">#0F9D58</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Advanced Settings Accordion -->
+                    <details class="advanced-settings">
+                        <summary>Configurações Avançadas (Opcional)</summary>
+                        <div class="advanced-content">
+                            <div class="form-group">
+                                <label for="packageName">Identificador do Pacote (Package Name)</label>
+                                <input type="text" id="packageName" name="packageName" value="com.app.planilha" placeholder="com.suaempresa.app">
+                                <span class="field-hint">Deve ter pelo menos 2 segmentos separados por ponto (ex: com.empresa.app).</span>
+                            </div>
+                        </div>
+                    </details>
+
+                    <!-- Submit Button -->
+                    <button type="submit" id="btnSubmit" class="btn-primary">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
+                        <span>Gerar APK Android Agora</span>
+                    </button>
+                </form>
+            </section>
+
+            <!-- Right Column: Live Mockup -->
+            <section class="preview-section">
+                <div class="preview-header">
+                    <h3>Pré-visualização no Celular</h3>
+                    <p>Veja como o aplicativo ficará na tela do Android</p>
+                </div>
+
+                <div class="phone-frame">
+                    <div class="phone-speaker"></div>
+                    <div class="phone-camera"></div>
+
+                    <!-- Phone Screen Content -->
+                    <div class="phone-screen">
+                        <!-- Android Status Bar -->
+                        <div class="mockup-status-bar" id="mockupStatusBar">
+                            <span class="time">12:30</span>
+                            <div class="status-icons">
+                                <span>5G</span>
+                                <span>100%</span>
+                            </div>
+                        </div>
+
+                        <!-- Mockup App Header -->
+                        <div class="mockup-app-header" id="mockupHeader">
+                            <div class="mockup-app-icon" id="mockupAppIcon">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="white">
+                                    <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z"/>
+                                    <path d="M7 7h10v2H7zm0 4h10v2H7zm0 4h7v2H7z"/>
+                                </svg>
+                            </div>
+                            <span class="mockup-title" id="mockupTitle">Minha Planilha App</span>
+                        </div>
+
+                        <!-- Mockup Web View Content -->
+                        <div class="mockup-webview-body">
+                            <div class="sheets-mockup-table">
+                                <div class="table-header-row">
+                                    <span class="cell-h">ID</span>
+                                    <span class="cell-h">Produto</span>
+                                    <span class="cell-h">Qtd</span>
+                                    <span class="cell-h">Status</span>
+                                </div>
+                                <div class="table-data-row">
+                                    <span class="cell">#101</span>
+                                    <span class="cell">Item A</span>
+                                    <span class="cell">14</span>
+                                    <span class="cell tag tag-ok">OK</span>
+                                </div>
+                                <div class="table-data-row">
+                                    <span class="cell">#102</span>
+                                    <span class="cell">Item B</span>
+                                    <span class="cell">28</span>
+                                    <span class="cell tag tag-ok">OK</span>
+                                </div>
+                                <div class="table-data-row">
+                                    <span class="cell">#103</span>
+                                    <span class="cell">Item C</span>
+                                    <span class="cell">05</span>
+                                    <span class="cell tag tag-warn">Baixo</span>
+                                </div>
+                                <div class="table-data-row">
+                                    <span class="cell">#104</span>
+                                    <span class="cell">Item D</span>
+                                    <span class="cell">42</span>
+                                    <span class="cell tag tag-ok">OK</span>
+                                </div>
+                            </div>
+
+                            <div class="mockup-fab" id="mockupFab">
+                                <svg viewBox="0 0 24 24" width="20" height="20" fill="white">
+                                    <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+                                </svg>
+                            </div>
+                        </div>
+
+                        <!-- Android Bottom Navigation Bar -->
+                        <div class="mockup-nav-bar">
+                            <div class="nav-bar-indicator"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Progress / Build Status Modal -->
+    <div id="buildModal" class="modal-overlay">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 id="modalTitle">Compilando seu Aplicativo</h3>
+                <button id="btnCloseModal" class="btn-close">&times;</button>
+            </div>
+            
+            <div class="modal-body">
+                <!-- Status Visual Indicator -->
+                <div class="build-loader-box" id="loaderBox">
+                    <div class="spinner"></div>
+                </div>
+
+                <div class="build-steps">
+                    <div class="step-item" id="step1">
+                        <div class="step-bullet">1</div>
+                        <div class="step-text">
+                            <strong>Iniciando Servidor de Compilação</strong>
+                            <span>Alocando ambiente Linux no GitHub Actions (7GB RAM)...</span>
+                        </div>
+                    </div>
+                    <div class="step-item" id="step2">
+                        <div class="step-bullet">2</div>
+                        <div class="step-text">
+                            <strong>Configurando Android &amp; Injetando Web App</strong>
+                            <span>Aplicando nome, ícone e link do Google Planilhas...</span>
+                        </div>
+                    </div>
+                    <div class="step-item" id="step3">
+                        <div class="step-bullet">3</div>
+                        <div class="step-text">
+                            <strong>Compilando APK com Gradle</strong>
+                            <span>Executando ./gradlew assembleRelease nativo...</span>
+                        </div>
+                    </div>
+                    <div class="step-item" id="step4">
+                        <div class="step-bullet">4</div>
+                        <div class="step-text">
+                            <strong>Assinando &amp; Publicando</strong>
+                            <span>Disponibilizando arquivo para download direto...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Finished Result Box (Hidden while building) -->
+                <div id="successBox" class="success-box" style="display: none;">
+                    <div class="success-icon">
+                        <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="#0F9D58" stroke-width="2.5">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="9 12 11.5 14.5 16 9"></polyline>
+                        </svg>
+                    </div>
+                    <h4>Seu APK está pronto! 🚀</h4>
+                    <p id="apkDetailsText">Aplicativo compilado e assinado com sucesso.</p>
+
+                    <div class="download-actions">
+                        <a id="btnDownloadApk" href="#" class="btn-download" target="_blank" download>
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                            <span>Baixar APK Direto</span>
+                        </a>
+                    </div>
+
+                    <!-- QR Code para escanear com celular -->
+                    <div class="qr-container">
+                        <p class="qr-label">Ou aponte a câmera do seu celular Android:</p>
+                        <div id="qrCodeWrapper">
+                            <img id="qrCodeImg" src="" alt="QR Code para Download">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Error Box -->
+                <div id="errorBox" class="error-box" style="display: none;">
+                    <div class="error-icon">⚠️</div>
+                    <h4 id="errorTitle">Falha na Compilação</h4>
+                    <p id="errorMessage">Ocorreu um erro ao comunicar com o servidor.</p>
+                    <a id="errorLogsLink" href="#" target="_blank" class="btn-secondary" style="margin-top: 12px; display: inline-block;">Ver Logs de Execução</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Help Tutorial Modal -->
+    <div id="helpModal" class="modal-overlay">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>Como Obter o Link Correto da sua Planilha</h3>
+                <button id="btnCloseHelp" class="btn-close">&times;</button>
+            </div>
+            <div class="modal-body tutorial-content">
+                <ol class="tutorial-steps">
+                    <li>
+                        <strong>Abra sua Google Planilha:</strong>
+                        <p>No menu superior, clique em <code>Extensões &gt; Apps Script</code>.</p>
+                    </li>
+                    <li>
+                        <strong>Clique no botão azul "Implantar":</strong>
+                        <p>No canto superior direito da tela do Apps Script, selecione <code>Nova Implantação</code>.</p>
+                    </li>
+                    <li>
+                        <strong>Selecione o tipo "App da Web":</strong>
+                        <p>No ícone de engrenagem, escolha a opção <strong>App da Web</strong>.</p>
+                    </li>
+                    <li>
+                        <strong>Configuração Crítica de Acesso:</strong>
+                        <p>No campo <em>"Quem pode acessar"</em>, selecione obrigatoriamente: <strong>Qualquer pessoa (Anyone)</strong>. Se deixar restrito, o aplicativo exibirá a tela de login do Google.</p>
+                    </li>
+                    <li>
+                        <strong>Copie a URL do App da Web:</strong>
+                        <p>A URL correta termina com <code>/exec</code> (Exemplo: <code>https://script.google.com/macros/s/.../exec</code>).</p>
+                    </li>
+                </ol>
+            </div>
+        </div>
+    </div>
+
+    <!-- Connection / Credentials Settings Modal -->
+    <div id="settingsModal" class="modal-overlay">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>Configuração do GitHub (Motor Gradle)</h3>
+                <button id="btnCloseSettings" class="btn-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="settings-intro">
+                    Quando o site for publicado no <strong>Cloudflare Pages</strong>, essas configurações podem ser salvas direto nas <em>Variáveis de Ambiente</em> do Cloudflare. Mas para testar imediatamente ou usar direto no navegador, você pode preenchê-las aqui:
+                </p>
+                <div class="form-group">
+                    <label for="cfgRepo">Repositório GitHub (usuario/repositorio)</label>
+                    <input type="text" id="cfgRepo" placeholder="ex: seu-usuario/seu-repositorio">
+                </div>
+                <div class="form-group">
+                    <label for="cfgToken">Personal Access Token (GitHub Token)</label>
+                    <input type="password" id="cfgToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx">
+                    <span class="field-hint">Token com permissão de <code>workflow</code> e <code>contents: write</code>. Fica gravado apenas no seu navegador.</span>
+                </div>
+                <button type="button" id="btnSaveSettings" class="btn-primary" style="margin-top: 12px;">Salvar Configurações</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,127 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_name:
+        description: 'Nome do Aplicativo'
+        required: true
+        default: 'Planilha App'
+      app_url:
+        description: 'URL do Google Web App'
+        required: true
+      package_name:
+        description: 'Package Name (applicationId)'
+        required: false
+        default: 'com.sheet.app'
+      theme_color:
+        description: 'Cor Primária (Hex)'
+        required: false
+        default: '#0F9D58'
+      icon_base64:
+        description: 'Ícone Base64 (PNG)'
+        required: false
+        default: ''
+      build_id:
+        description: 'ID Único da Compilação'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Compilar APK Android
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar Código do Repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Configurar Python e Pillow
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pillow
+
+      - name: Injetar Parâmetros no Projeto Android
+        id: prep
+        run: |
+          python scripts/prepare-build.py \
+            --app-name "${{ inputs.app_name }}" \
+            --app-url "${{ inputs.app_url }}" \
+            --package-name "${{ inputs.package_name }}" \
+            --theme-color "${{ inputs.theme_color }}" \
+            --icon-base64 "${{ inputs.icon_base64 }}"
+
+      - name: Configurar Cache do Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Garantir Keystore Padrão
+        run: |
+          mkdir -p ~/.android
+          if [ ! -f ~/.android/debug.keystore ]; then
+            keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      - name: Permissões de Execução do Gradle
+        run: chmod +x android-template/gradlew
+
+      - name: Compilar APK com Gradle
+        run: |
+          cd android-template
+          if [ -f gradle/wrapper/gradle-wrapper.jar ]; then
+            ./gradlew assembleRelease --stacktrace
+          else
+            gradle wrapper
+            ./gradlew assembleRelease --stacktrace || gradle assembleRelease --stacktrace
+          fi
+
+      - name: Renomear e Preparar Arquivo APK
+        run: |
+          SAFE_NAME="${{ steps.prep.outputs.safe_app_name }}"
+          if [ -z "$SAFE_NAME" ]; then
+            SAFE_NAME="app-release"
+          fi
+          
+          # Procura o APK gerado
+          APK_PATH=$(find android-template/app/build/outputs/apk -name "*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "Erro: Arquivo APK não encontrado após compilação!"
+            exit 1
+          fi
+          
+          mkdir -p dist
+          cp "$APK_PATH" "dist/${SAFE_NAME}.apk"
+          echo "APK_FILE_PATH=dist/${SAFE_NAME}.apk" >> $GITHUB_ENV
+          echo "FINAL_APK_NAME=${SAFE_NAME}.apk" >> $GITHUB_ENV
+
+      - name: Publicar Release no GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ inputs.build_id }}"
+          name: "${{ inputs.app_name }} (Build ${{ inputs.build_id }})"
+          body: |
+            ### Aplicativo Gerado com Sucesso! 🚀
+            - **Nome do App:** ${{ inputs.app_name }}
+            - **URL Conectada:** ${{ inputs.app_url }}
+            - **ID do Build:** `${{ inputs.build_id }}`
+            - **Arquivo:** `${{ env.FINAL_APK_NAME }}`
+          draft: false
+          prerelease: false
+          files: ${{ env.APK_FILE_PATH }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

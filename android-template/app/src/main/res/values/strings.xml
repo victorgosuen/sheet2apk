@@ -1,0 +1,12 @@
+<resources>
+    <!-- Configurações Principais Substituídas Durante o Build -->
+    <string name="app_name">Planilha Web App</string>
+    <string name="app_url">https://script.google.com/</string>
+    
+    <!-- Textos da Interface do App -->
+    <string name="error_offline_title">Sem conexão com a internet</string>
+    <string name="error_offline_desc">Verifique sua rede Wi-Fi ou dados móveis e tente novamente.</string>
+    <string name="btn_retry">Tentar novamente</string>
+    <string name="msg_downloading">Iniciando download…</string>
+    <string name="permission_denied">Permissão necessária para esta funcionalidade.</string>
+</resources>

@@ -1,0 +1,19 @@
+{
+  "name": "sheet2apk",
+  "version": "1.0.0",
+  "description": "Transforme Web Apps do Google Planilhas em APKs Android com Cloudflare e GitHub Actions",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "google-sheets",
+    "apk",
+    "android",
+    "cloudflare-pages",
+    "github-actions"
+  ],
+  "author": "",
+  "license": "MIT"
+}
