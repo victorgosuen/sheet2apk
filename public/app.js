@@ -203,10 +203,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const zip = new JSZip();
             let hasIndexHtml = false;
 
-            // Determinar o menor caminho comum para não criar pastas aninhadas desnecessárias
+            // Filtra e compacta apenas os arquivos relevantes (ignora node_modules gigantes e .git)
             for (const file of files) {
                 const relPath = file.customRelativePath || file.webkitRelativePath || file.name;
                 const normalized = relPath.replace(/\\/g, '/');
+
+                if (normalized.includes('node_modules/') || normalized.includes('.git/') || normalized.includes('.vscode/')) {
+                    continue;
+                }
 
                 if (normalized.toLowerCase().endsWith('index.html')) {
                     hasIndexHtml = true;

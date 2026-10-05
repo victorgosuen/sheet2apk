@@ -127,7 +127,20 @@ def main():
                     shutil.move(os.path.join(subfolder, subitem), os.path.join(assets_dir, subitem))
                 os.rmdir(subfolder)
 
-            print("[OK] Arquivos do diretório descompactados com sucesso.")
+            # Se o projeto possui uma pasta compilada 'dist' ou 'build' com index.html, prioriza a pasta compilada
+            for compiled_name in ['dist', 'build']:
+                compiled_folder = os.path.join(assets_dir, compiled_name)
+                if os.path.isdir(compiled_folder) and os.path.exists(os.path.join(compiled_folder, 'index.html')):
+                    print(f"[OK] Detectada pasta compilada '{compiled_name}'! Promovendo para a raiz do aplicativo.")
+                    temp_dir = os.path.join(assets_main, 'temp_compiled')
+                    if os.path.exists(temp_dir):
+                        shutil.rmtree(temp_dir)
+                    shutil.move(compiled_folder, temp_dir)
+                    shutil.rmtree(assets_dir)
+                    shutil.move(temp_dir, assets_dir)
+                    break
+
+            print("[OK] Arquivos do diretório preparados com sucesso.")
 
             # Verifica se o ZIP inclui arquivo de splash empacotado (.sheet2apk/splash.json ou splash.json)
             possible_lotties = [

@@ -279,6 +279,18 @@ class MainActivity : AppCompatActivity() {
                 request: WebResourceRequest?
             ): WebResourceResponse? {
                 val url = request?.url ?: return null
+                if (url.host == "appassets.androidplatform.net") {
+                    val path = url.path ?: ""
+                    if (!path.startsWith("/assets/")) {
+                        val correctedUri = Uri.parse("https://appassets.androidplatform.net/assets/www$path")
+                        return assetLoader.shouldInterceptRequest(correctedUri)
+                    }
+                    if (path.startsWith("/assets/") && !path.startsWith("/assets/www/")) {
+                        val subPath = path.removePrefix("/assets")
+                        val correctedUri = Uri.parse("https://appassets.androidplatform.net/assets/www$subPath")
+                        return assetLoader.shouldInterceptRequest(correctedUri)
+                    }
+                }
                 return assetLoader.shouldInterceptRequest(url)
             }
 
