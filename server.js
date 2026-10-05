@@ -43,6 +43,9 @@ const server = http.createServer(async (req, res) => {
                 const build_id = Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
                 const dispatchUrl = `https://api.github.com/repos/${repo}/actions/workflows/build-apk.yml/dispatches`;
 
+                let safeIcon = body.icon_base64 || '';
+                if (safeIcon.length > 55000) safeIcon = '';
+
                 const ghRes = await fetch(dispatchUrl, {
                     method: 'POST',
                     headers: {
@@ -58,7 +61,7 @@ const server = http.createServer(async (req, res) => {
                             app_url: body.app_url,
                             package_name: body.package_name || 'com.sheet.app',
                             theme_color: body.theme_color || '#0F9D58',
-                            icon_base64: body.icon_base64 || '',
+                            icon_base64: safeIcon,
                             build_id: build_id
                         }
                     })

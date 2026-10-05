@@ -103,24 +103,40 @@ document.addEventListener('DOMContentLoaded', () => {
         return `rgb(${r}, ${g}, ${b})`;
     }
 
-    // 3. Processamento e Preview do Ícone
+    // 3. Processamento, Redimensionamento e Preview do Ícone (Máx 192x192 para caber no GitHub Actions)
     function handleIconFile(file) {
         if (!file || !file.type.startsWith('image/')) {
             alert('Por favor, selecione um arquivo de imagem válido (PNG ou JPG).');
             return;
         }
 
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            currentIconBase64 = e.target.result;
+        const img = new Image();
+        img.onload = () => {
+            // Redimensiona para 192x192 (padrão Android xxxhdpi)
+            const canvas = document.createElement('canvas');
+            const size = 192;
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, size, size);
+
+            // Gera PNG otimizado leve (< 20KB)
+            let base64 = canvas.toDataURL('image/png');
+
+            // Se for muito pesado, comprime para JPEG para garantir que fique bem abaixo do limite de 60KB do GitHub
+            if (base64.length > 45000) {
+                base64 = canvas.toDataURL('image/jpeg', 0.85);
+            }
+
+            currentIconBase64 = base64;
             iconPreviewImg.src = currentIconBase64;
             iconPreviewImg.style.display = 'block';
             iconPlaceholder.style.display = 'none';
 
-            // Atualiza o mockup
+            // Atualiza o mockup do celular
             mockupAppIcon.innerHTML = `<img src="${currentIconBase64}" alt="App Icon">`;
         };
-        reader.readAsDataURL(file);
+        img.src = URL.createObjectURL(file);
     }
 
     iconFileInput.addEventListener('change', (e) => {

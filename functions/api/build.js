@@ -30,6 +30,12 @@ export async function onRequestPost(context) {
         // Gera um ID de build único
         const build_id = Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
 
+        // O GitHub Actions limita o payload de inputs em 65KB.
+        let safeIcon = icon_base64 || '';
+        if (safeIcon.length > 55000) {
+            safeIcon = '';
+        }
+
         const dispatchUrl = `https://api.github.com/repos/${repoFullName}/actions/workflows/build-apk.yml/dispatches`;
 
         const dispatchRes = await fetch(dispatchUrl, {
@@ -47,7 +53,7 @@ export async function onRequestPost(context) {
                     app_url: app_url.trim(),
                     package_name: package_name || 'com.sheet.app',
                     theme_color: theme_color || '#0F9D58',
-                    icon_base64: icon_base64 || '',
+                    icon_base64: safeIcon,
                     build_id: build_id
                 }
             })
