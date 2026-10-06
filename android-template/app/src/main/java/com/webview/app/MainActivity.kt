@@ -200,6 +200,22 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // Resolve requisições do domínio virtual para os arquivos em assets/www.
+    // Caminhos absolutos (/assets/x.js, /pontos.json) apontam para a raiz do app.
+    private fun interceptLocal(url: Uri): WebResourceResponse? {
+        if (url.host == "appassets.androidplatform.net") {
+            val path = url.path ?: ""
+            val target = if (path.startsWith("/assets/www/")) url
+                else Uri.parse("https://appassets.androidplatform.net/assets/www" + (if (path.isEmpty() || path == "/") "/index.html" else path))
+            val resp = assetLoader.shouldInterceptRequest(target)
+            if (resp != null && (target.path ?: "").endsWith(".mjs")) {
+                resp.mimeType = "text/javascript"
+            }
+            return resp
+        }
+        return assetLoader.shouldInterceptRequest(url)
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
         val settings = webView.settings
@@ -263,6 +279,14 @@ class MainActivity : AppCompatActivity() {
                 origin: String?,
                 callback: GeolocationPermissions.Callback?
             ) {
+                val fine = ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.ACCESS_FINE_LOCATION)
+                if (fine != PackageManager.PERMISSION_GRANTED) {
+                    // Pede a permissão de localização em tempo de execução (precisa estar no manifesto)
+                    requestPermissionsLauncher.launch(arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    ))
+                }
                 callback?.invoke(origin, true, false)
             }
 
@@ -270,6 +294,25 @@ class MainActivity : AppCompatActivity() {
                 // Concede permissões web caso o app tenha solicitado (câmera, microfone)
                 request?.grant(request.resources)
             }
+
+            override fun onConsoleMessage(msg: ConsoleMessage?): Boolean {
+                if (msg != null && msg.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
+                    android.util.Log.e("Sheet2APK", "JS: ${msg.message()} (${msg.sourceId()}:${msg.lineNumber()})")
+                    Toast.makeText(this@MainActivity, "Erro JS: ${msg.message().take(120)}", Toast.LENGTH_LONG).show()
+                }
+                return true
+            }
+        }
+
+        // Service Workers (ex: sw.js do projeto) também precisam ler os arquivos locais
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            try {
+                ServiceWorkerController.getInstance().setServiceWorkerClient(object : ServiceWorkerClient() {
+                    override fun shouldInterceptRequest(request: WebResourceRequest): WebResourceResponse? {
+                        return interceptLocal(request.url)
+                    }
+                })
+            } catch (e: Exception) { /* ignorado */ }
         }
 
         // WebViewClient: Navegação interna e links externos (WhatsApp, etc.)
@@ -279,18 +322,7 @@ class MainActivity : AppCompatActivity() {
                 request: WebResourceRequest?
             ): WebResourceResponse? {
                 val url = request?.url ?: return null
-                if (url.host == "appassets.androidplatform.net") {
-                    val path = url.path ?: ""
-                    // Caminhos absolutos (/assets/x.js, /pontos.json) apontam para a raiz do app (assets/www)
-                    val target = if (path.startsWith("/assets/www/")) url
-                        else Uri.parse("https://appassets.androidplatform.net/assets/www" + (if (path.isEmpty()) "/index.html" else path))
-                    val resp = assetLoader.shouldInterceptRequest(target)
-                    if (resp != null && (target.path ?: "").endsWith(".mjs")) {
-                        resp.mimeType = "text/javascript"
-                    }
-                    return resp
-                }
-                return assetLoader.shouldInterceptRequest(url)
+                return interceptLocal(url)
             }
 
             override fun shouldOverrideUrlLoading(

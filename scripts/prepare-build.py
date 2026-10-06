@@ -142,6 +142,42 @@ def main():
 
             print("[OK] Arquivos do diretório preparados com sucesso.")
 
+            # Detecção automática de recursos usados pelo código do projeto
+            try:
+                scan_exts = ('.js', '.mjs', '.html', '.htm')
+                found = {'geo': False, 'cam': False, 'mic': False, 'map': False}
+                for dp, _dn, fns in os.walk(assets_dir):
+                    for fn in fns:
+                        if not fn.lower().endswith(scan_exts):
+                            continue
+                        try:
+                            with open(os.path.join(dp, fn), 'r', encoding='utf-8', errors='ignore') as sf:
+                                txt = sf.read()
+                        except Exception:
+                            continue
+                        if 'geolocation' in txt:
+                            found['geo'] = True
+                        if 'getUserMedia' in txt or 'mediaDevices' in txt or 'capture=' in txt:
+                            found['cam'] = True
+                            if 'audio' in txt and 'getUserMedia' in txt:
+                                found['mic'] = True
+                        if 'maplibre' in txt.lower() or 'leaflet' in txt.lower() or 'mapboxgl' in txt.lower():
+                            found['map'] = True
+                if found['geo'] and not str_to_bool(args.perm_location):
+                    args.perm_location = 'true'
+                    print("[AUTO] Código usa geolocation -> permissão de Localização habilitada.")
+                if found['cam'] and not str_to_bool(args.perm_camera):
+                    args.perm_camera = 'true'
+                    print("[AUTO] Código usa câmera -> permissão de Câmera habilitada.")
+                if found['mic'] and not str_to_bool(args.perm_mic):
+                    args.perm_mic = 'true'
+                    print("[AUTO] Código usa microfone -> permissão de Microfone habilitada.")
+                if found['map'] and str_to_bool(args.pull_to_refresh):
+                    args.pull_to_refresh = 'false'
+                    print("[AUTO] Biblioteca de mapa detectada -> Puxar para atualizar desativado (conflita com arrastar o mapa).")
+            except Exception as scan_err:
+                print(f"! Aviso: falha na detecção automática ({scan_err})")
+
             # Verifica se o ZIP inclui arquivo de splash empacotado (.sheet2apk/splash.json ou splash.json)
             possible_lotties = [
                 os.path.join(assets_dir, '.sheet2apk', 'splash.json'),
