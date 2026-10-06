@@ -142,13 +142,17 @@ def main():
 
             print("[OK] Arquivos do diretório preparados com sucesso.")
 
-            # Detecção automática de recursos usados pelo código do projeto
+            # Detecção automática profunda de recursos usados pelo código do projeto
             try:
-                scan_exts = ('.js', '.mjs', '.html', '.htm')
-                found = {'geo': False, 'cam': False, 'mic': False, 'map': False}
+                scan_exts = ('.js', '.mjs', '.html', '.htm', '.json')
+                found = {'geo': False, 'cam': False, 'mic': False, 'map': False, 'wakelock': False}
                 for dp, _dn, fns in os.walk(assets_dir):
                     for fn in fns:
-                        if not fn.lower().endswith(scan_exts):
+                        fn_lower = fn.lower()
+                        if fn_lower.endswith(('.kml', '.geojson')):
+                            found['geo'] = True
+                            found['map'] = True
+                        if not fn_lower.endswith(scan_exts):
                             continue
                         try:
                             with open(os.path.join(dp, fn), 'r', encoding='utf-8', errors='ignore') as sf:
@@ -156,28 +160,91 @@ def main():
                         except Exception:
                             continue
                         txt_lower = txt.lower()
-                        if 'geolocation' in txt_lower or 'getcurrentposition' in txt_lower or 'watchposition' in txt_lower:
+
+                        # 1. Geolocalização, GPS e Bibliotecas de Mapa
+                        if any(k in txt_lower for k in [
+                            'geolocation', 'getcurrentposition', 'watchposition', 'coordinates',
+                            'latitude', 'longitude', 'pontos.json', 'gps'
+                        ]):
                             found['geo'] = True
-                        if 'getusermedia' in txt_lower or 'mediadevices' in txt_lower or 'capture=' in txt_lower:
-                            found['cam'] = True
-                            if 'audio' in txt_lower:
-                                found['mic'] = True
-                        if 'maplibre' in txt_lower or 'leaflet' in txt_lower or 'mapboxgl' in txt_lower or 'openlayers' in txt_lower or 'google.maps' in txt_lower:
+                        if any(k in txt_lower for k in [
+                            'maplibre', 'leaflet', 'mapboxgl', 'openlayers', 'google.maps', 'ol.map', 'l.map'
+                        ]):
                             found['map'] = True
+                            found['geo'] = True
+
+                        # 2. Câmera, Upload de Fotos e Seletor de Arquivos
+                        if any(k in txt_lower for k in [
+                            'getusermedia', 'mediadevices', 'capture=', 'camera', 'foto', 'photo', 'picture',
+                            'tirar foto', 'type="file"', "type='file'", 'accept="image', "accept='image", 'image/*'
+                        ]):
+                            found['cam'] = True
+
+                        # 3. Microfone e Áudio
+                        if any(k in txt_lower for k in [
+                            'record_audio', 'mediarecorder', 'audiocontext', 'webkitaudiocontext', 'speechrecognition'
+                        ]):
+                            found['mic'] = True
+
+                        # 4. Manter Tela Acesa (WakeLock)
+                        if 'wakelock' in txt_lower:
+                            found['wakelock'] = True
+
                 if (found['geo'] or found['map']) and not str_to_bool(args.perm_location):
                     args.perm_location = 'true'
                     print("[AUTO] Código usa geolocalização/mapas -> permissão de Localização GPS habilitada.")
                 if found['cam'] and not str_to_bool(args.perm_camera):
                     args.perm_camera = 'true'
-                    print("[AUTO] Código usa câmera -> permissão de Câmera habilitada.")
+                    print("[AUTO] Código usa câmera/upload de fotos -> permissão de Câmera habilitada.")
                 if found['mic'] and not str_to_bool(args.perm_mic):
                     args.perm_mic = 'true'
-                    print("[AUTO] Código usa microfone -> permissão de Microfone habilitada.")
+                    print("[AUTO] Código usa áudio/gravação -> permissão de Microfone habilitada.")
+                if found['wakelock'] and not str_to_bool(args.keep_screen_on):
+                    args.keep_screen_on = 'true'
+                    print("[AUTO] Código usa WakeLock -> Manter Tela Acesa ativado.")
                 if found['map'] and str_to_bool(args.pull_to_refresh):
                     args.pull_to_refresh = 'false'
-                    print("[AUTO] Biblioteca de mapa detectada -> Puxar para atualizar desativado (conflita com arrastar o mapa).")
+                    print("[AUTO] Biblioteca de mapa detectada -> Puxar para atualizar desativado (conflita com gestos no mapa).")
             except Exception as scan_err:
                 print(f"! Aviso: falha na detecção automática ({scan_err})")
+
+            # Identificação automática do nome do aplicativo a partir do <title> se padrão
+            if args.app_name in ("Planilha App", "Meu App", "App"):
+                index_html = os.path.join(assets_dir, 'index.html')
+                if os.path.exists(index_html):
+                    try:
+                        with open(index_html, 'r', encoding='utf-8', errors='ignore') as f_html:
+                            html_content = f_html.read()
+                        m_title = re.search(r'<title>(.*?)</title>', html_content, re.IGNORECASE)
+                        if m_title and m_title.group(1).strip():
+                            clean_t = m_title.group(1).strip().replace('•', '').strip()
+                            if clean_t:
+                                args.app_name = clean_t
+                                print(f"[AUTO] Nome do App identificado a partir do <title>: {args.app_name}")
+                    except Exception:
+                        pass
+
+            # Procura ícone nos arquivos do projeto se não foi passado via parâmetro
+            if not args.icon_base64:
+                possible_icons = [
+                    os.path.join(assets_dir, 'icon.png'),
+                    os.path.join(assets_dir, 'icone.png'),
+                    os.path.join(assets_dir, 'logo.png'),
+                    os.path.join(assets_dir, 'favicon.png'),
+                    os.path.join(assets_dir, 'assets', 'icon.png'),
+                    os.path.join(assets_dir, 'assets', 'icone.png'),
+                    os.path.join(assets_dir, 'public', 'icon.png'),
+                    os.path.join(assets_dir, 'public', 'icone.png')
+                ]
+                for ic_path in possible_icons:
+                    if os.path.exists(ic_path):
+                        try:
+                            with open(ic_path, 'rb') as f_ic:
+                                args.icon_base64 = base64.b64encode(f_ic.read()).decode('utf-8')
+                            print(f"[AUTO] Ícone encontrado e configurado a partir de: {os.path.relpath(ic_path, assets_dir)}")
+                            break
+                        except Exception:
+                            pass
 
             # Verifica se o ZIP inclui arquivo de splash empacotado (.sheet2apk/splash.json ou splash.json)
             possible_lotties = [
@@ -331,7 +398,8 @@ def main():
             permissions_xml.extend([
                 '    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />',
                 '    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />',
-                '    <uses-feature android:name="android.hardware.location.gps" android:required="false" />'
+                '    <uses-feature android:name="android.hardware.location.gps" android:required="false" />',
+                '    <uses-feature android:name="android.hardware.location.network" android:required="false" />'
             ])
             print("[OK] Permissão de Localização GPS habilitada.")
 
@@ -378,7 +446,7 @@ def main():
             if p:
                 clean_parts.append(p)
 
-        if len(clean_parts) < 2:
+        if len(clean_parts) < 2 or raw_pkg in ("com.sheet.app", "com.app.planilha", "com.webview.app"):
             safe_slug = re.sub(r'[^a-zA-Z0-9_]', '', args.app_name.lower().replace(' ', '_')).strip('_')
             if safe_slug and safe_slug[0].isdigit():
                 safe_slug = f"app_{safe_slug}"

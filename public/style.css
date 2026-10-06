@@ -1327,3 +1327,54 @@ body {
     color: var(--text-muted);
     margin-bottom: 16px;
 }
+
+/* Card de Análise Automática Inteligente */
+.analysis-card {
+    margin-top: 12px;
+    padding: 12px 14px;
+    background: rgba(16, 185, 129, 0.08);
+    border: 1px solid rgba(16, 185, 129, 0.25);
+    border-radius: var(--radius-sm);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 0.82rem;
+    animation: fadeInAnalysis 0.3s ease-in-out;
+}
+
+@keyframes fadeInAnalysis {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.analysis-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #10B981;
+    font-weight: 600;
+}
+
+.analysis-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.analysis-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 0.74rem;
+    color: var(--text-main);
+}
+
+.analysis-badge.active {
+    background: rgba(16, 185, 129, 0.16);
+    border-color: rgba(16, 185, 129, 0.4);
+    color: #34D399;
+}

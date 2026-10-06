@@ -23,9 +23,13 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.RelativeLayout
+import android.location.LocationManager
+import android.provider.MediaStore
 import android.widget.Toast
 import java.io.ByteArrayInputStream
+import java.io.File
 import java.io.InputStream
+import androidx.core.content.FileProvider
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -55,22 +59,38 @@ class MainActivity : AppCompatActivity() {
     private var pendingGeoOrigin: String? = null
     private var pendingGeoCallback: GeolocationPermissions.Callback? = null
 
-    // Gerenciador de Seleção de Arquivos (Fotos, Documentos, etc.)
+    private var cameraImageUri: Uri? = null
+
+    // Gerenciador de Seleção de Arquivos (Fotos da Câmera, Galeria, Documentos, etc.)
     private val filePickerLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (filePathCallback != null) {
-            val results: Array<Uri>? = when {
-                result.resultCode == RESULT_OK && result.data != null -> {
+            val results: Array<Uri>? = when (result.resultCode) {
+                RESULT_OK -> {
                     val clipData = result.data?.clipData
                     val data = result.data?.data
-                    if (clipData != null) {
-                        Array(clipData.itemCount) { i -> clipData.getItemAt(i).uri }
-                    } else if (data != null) {
-                        arrayOf(data)
-                    } else null
+                    when {
+                        clipData != null -> {
+                            cameraImageUri = null
+                            Array(clipData.itemCount) { i -> clipData.getItemAt(i).uri }
+                        }
+                        data != null -> {
+                            cameraImageUri = null
+                            arrayOf(data)
+                        }
+                        cameraImageUri != null -> {
+                            val uri = cameraImageUri
+                            cameraImageUri = null
+                            if (uri != null) arrayOf(uri) else null
+                        }
+                        else -> null
+                    }
                 }
-                else -> null
+                else -> {
+                    cameraImageUri = null
+                    null
+                }
             }
             filePathCallback?.onReceiveValue(results)
             filePathCallback = null
@@ -87,6 +107,13 @@ class MainActivity : AppCompatActivity() {
             pendingGeoCallback?.invoke(pendingGeoOrigin, geoGranted, true)
             pendingGeoCallback = null
             pendingGeoOrigin = null
+        }
+        if (geoGranted) {
+            // Se o usuário concedeu a permissão agora, acorda o rastreamento GPS na página Web
+            webView.evaluateJavascript(
+                "if (window.atualizarPosicao && navigator.geolocation) { navigator.geolocation.getCurrentPosition(window.atualizarPosicao, null, { enableHighAccuracy: true }); }",
+                null
+            )
         }
     }
 
@@ -393,14 +420,58 @@ class MainActivity : AppCompatActivity() {
                 this@MainActivity.filePathCallback?.onReceiveValue(null)
                 this@MainActivity.filePathCallback = filePathCallback
 
-                val intent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
-                    type = "*/*"
+                val acceptTypes = fileChooserParams?.acceptTypes ?: emptyArray()
+                val isImage = acceptTypes.isEmpty() || acceptTypes.any {
+                    it.contains("image", ignoreCase = true) || it == "*/*"
+                }
+
+                val intentList = mutableListOf<Intent>()
+
+                // 1. Se aceitar imagem, adiciona a opção de Câmera (Tirar Foto)
+                if (isImage) {
+                    try {
+                        val photoFile = File.createTempFile(
+                            "PHOTO_${System.currentTimeMillis()}_",
+                            ".jpg",
+                            getExternalFilesDir(Environment.DIRECTORY_PICTURES) ?: cacheDir
+                        )
+                        cameraImageUri = FileProvider.getUriForFile(
+                            this@MainActivity,
+                            "${packageName}.fileprovider",
+                            photoFile
+                        )
+                        val captureIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                            putExtra(MediaStore.EXTRA_OUTPUT, cameraImageUri)
+                            addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        intentList.add(captureIntent)
+                    } catch (e: Exception) {
+                        cameraImageUri = null
+                    }
+                }
+
+                // 2. Intent para abrir Galeria / Seletor de Arquivos
+                val galleryIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
+                    type = if (isImage) "image/*" else "*/*"
+                    if (fileChooserParams?.mode == FileChooserParams.MODE_OPEN_MULTIPLE) {
+                        putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                    }
+                }
+
+                // 3. Chooser que exibe AMBOS: Câmera e Galeria ao mesmo tempo!
+                val chooserIntent = Intent(Intent.ACTION_CHOOSER).apply {
+                    putExtra(Intent.EXTRA_INTENT, galleryIntent)
+                    putExtra(Intent.EXTRA_TITLE, "Tirar Foto ou Escolher da Galeria")
+                    if (intentList.isNotEmpty()) {
+                        putExtra(Intent.EXTRA_INITIAL_INTENTS, intentList.toTypedArray())
+                    }
                 }
 
                 try {
-                    filePickerLauncher.launch(intent)
+                    filePickerLauncher.launch(chooserIntent)
                 } catch (e: Exception) {
+                    this@MainActivity.filePathCallback?.onReceiveValue(null)
                     this@MainActivity.filePathCallback = null
                     return false
                 }
@@ -411,6 +482,9 @@ class MainActivity : AppCompatActivity() {
                 origin: String?,
                 callback: GeolocationPermissions.Callback?
             ) {
+                val safeOrigin = if (!origin.isNullOrEmpty()) origin else "https://appassets.androidplatform.net"
+
+                // Garante que o Android OS tenha as permissões de localização
                 val fine = ContextCompat.checkSelfPermission(
                     this@MainActivity,
                     Manifest.permission.ACCESS_FINE_LOCATION
@@ -421,9 +495,9 @@ class MainActivity : AppCompatActivity() {
                 ) == PackageManager.PERMISSION_GRANTED
 
                 if (fine || coarse) {
-                    callback?.invoke(origin, true, true)
+                    callback?.invoke(safeOrigin, true, true)
                 } else {
-                    pendingGeoOrigin = origin
+                    pendingGeoOrigin = safeOrigin
                     pendingGeoCallback = callback
                     requestPermissionsLauncher.launch(
                         arrayOf(
@@ -432,6 +506,20 @@ class MainActivity : AppCompatActivity() {
                         )
                     )
                 }
+
+                // Alerta amigável caso o GPS de hardware esteja completamente desativado no aparelho
+                try {
+                    val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+                    val gpsOn = lm.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+                                lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+                    if (!gpsOn) {
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Por favor, ative a Localização / GPS nas configurações do celular.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                } catch (_: Exception) {}
             }
 
             override fun onPermissionRequest(request: PermissionRequest?) {
@@ -442,7 +530,6 @@ class MainActivity : AppCompatActivity() {
             override fun onConsoleMessage(msg: ConsoleMessage?): Boolean {
                 if (msg != null && msg.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
                     android.util.Log.e("Sheet2APK", "JS: ${msg.message()} (${msg.sourceId()}:${msg.lineNumber()})")
-                    Toast.makeText(this@MainActivity, "Erro JS: ${msg.message().take(120)}", Toast.LENGTH_LONG).show()
                 }
                 return true
             }

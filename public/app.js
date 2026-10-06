@@ -136,13 +136,202 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    function handleDirectZipFile(file) {
+    function escapeHtml(str) {
+        return String(str || '').replace(/[&<>'"]/g, tag => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            "'": '&#39;',
+            '"': '&quot;'
+        }[tag] || tag));
+    }
+
+    async function analyzeAndAutoConfigure(files) {
+        const detected = {
+            geo: false,
+            camera: false,
+            mic: false,
+            map: false,
+            wakelock: false,
+            iconFound: false,
+            splashFound: false,
+            appName: null
+        };
+
+        const textExtensions = ['.html', '.htm', '.js', '.mjs', '.json', '.geojson', '.kml'];
+
+        for (const file of files) {
+            const pathLower = (file.customRelativePath || file.webkitRelativePath || file.name).toLowerCase().replace(/\\/g, '/');
+
+            // Ignorar pastas gigantes de dependências
+            if (pathLower.includes('node_modules/') || pathLower.includes('.git/') || pathLower.includes('.vscode/')) continue;
+
+            // 1. Detecção de Ícone automático se ainda não selecionou
+            if (!currentIconBase64 && (pathLower.endsWith('icon.png') || pathLower.endsWith('icone.png') || pathLower.endsWith('logo.png') || pathLower.endsWith('favicon.png'))) {
+                try {
+                    handleIconFile(file);
+                    detected.iconFound = true;
+                } catch (e) {}
+            }
+
+            // 2. Detecção de Splash Screen automática se não selecionou
+            if (currentSplashType === 'none') {
+                if (pathLower.endsWith('splash.json') || pathLower.endsWith('.sheet2apk/splash.json')) {
+                    try {
+                        const text = await file.text();
+                        const parsed = JSON.parse(text);
+                        currentSplashBase64 = btoa(unescape(encodeURIComponent(JSON.stringify(parsed))));
+                        currentSplashType = 'lottie';
+                        splashTitle.textContent = file.name;
+                        splashSub.textContent = `✨ Splash Lottie detectada automaticamente!`;
+                        btnRemoveSplash.style.display = 'flex';
+                        splashDropZone.classList.add('has-file');
+                        mockupSplashIcon.innerHTML = `<div style="font-size: 2.2rem;">✨</div>`;
+                        detected.splashFound = true;
+                    } catch (e) {}
+                }
+            }
+
+            // 3. Detecção de Nome pelo <title> do index.html
+            if (pathLower.endsWith('index.html')) {
+                try {
+                    const htmlText = await file.text();
+                    const titleMatch = htmlText.match(/<title>(.*?)<\/title>/i);
+                    if (titleMatch && titleMatch[1]) {
+                        const cleanTitle = titleMatch[1].replace(/[•\-_]/g, ' ').replace(/\s+/g, ' ').trim();
+                        if (cleanTitle && cleanTitle.length > 1) {
+                            detected.appName = cleanTitle;
+                        }
+                    }
+                } catch (e) {}
+            }
+
+            // 4. Detecção de Geometrias e KML/GeoJSON
+            if (pathLower.endsWith('.kml') || pathLower.endsWith('.geojson') || pathLower.endsWith('pontos.json')) {
+                detected.geo = true;
+                detected.map = true;
+            }
+
+            // 5. Varredura textual em arquivos JS/HTML pequenos (< 2.5 MB)
+            if (file.size < 2.5 * 1024 * 1024 && textExtensions.some(ext => pathLower.endsWith(ext))) {
+                try {
+                    const content = (await file.text()).toLowerCase();
+
+                    // GPS / Localização / Mapas
+                    if (['geolocation', 'getcurrentposition', 'watchposition', 'coordinates', 'latitude', 'longitude', 'pontos.json', 'gps'].some(k => content.includes(k))) {
+                        detected.geo = true;
+                    }
+                    if (['maplibre', 'leaflet', 'mapboxgl', 'openlayers', 'google.maps', 'ol.map', 'l.map'].some(k => content.includes(k))) {
+                        detected.map = true;
+                        detected.geo = true;
+                    }
+
+                    // Câmera / Upload de Fotos / Seletor de Arquivos
+                    if (['getusermedia', 'mediadevices', 'capture=', 'camera', 'foto', 'photo', 'picture', 'tirar foto', 'type="file"', "type='file'", 'accept="image', "accept='image", 'image/*'].some(k => content.includes(k))) {
+                        detected.camera = true;
+                    }
+
+                    // Microfone / Áudio
+                    if (['record_audio', 'mediarecorder', 'audiocontext', 'webkitaudiocontext', 'speechrecognition'].some(k => content.includes(k))) {
+                        detected.mic = true;
+                    }
+
+                    // Manter Tela Acesa
+                    if (content.includes('wakelock')) {
+                        detected.wakelock = true;
+                    }
+                } catch (e) {}
+            }
+        }
+
+        // Aplica as permissões detectadas automaticamente
+        const badgesHtml = [];
+
+        if (detected.appName && (!appNameInput.value || appNameInput.value === 'Minha Planilha' || appNameInput.value === 'Planilha App' || appNameInput.value === 'Meu App')) {
+            appNameInput.value = detected.appName;
+            const uniqueSlug = slugifyPackage(detected.appName);
+            packageNameInput.value = uniqueSlug;
+            packageManuallyEdited = true;
+            badgesHtml.push(`<span class="analysis-badge active">🏷️ Nome: <b>${escapeHtml(detected.appName)}</b></span>`);
+            badgesHtml.push(`<span class="analysis-badge active">📦 ID Único: <b>${escapeHtml(uniqueSlug)}</b></span>`);
+        }
+
+        if (detected.geo || detected.map) {
+            chkPermLocation.checked = true;
+            badgesHtml.push(`<span class="analysis-badge active">📍 Localização GPS</span>`);
+        }
+
+        if (detected.camera) {
+            chkPermCamera.checked = true;
+            badgesHtml.push(`<span class="analysis-badge active">📸 Câmera & Galeria</span>`);
+        }
+
+        if (detected.mic) {
+            chkPermMic.checked = true;
+            badgesHtml.push(`<span class="analysis-badge active">🎤 Microfone</span>`);
+        }
+
+        if (detected.wakelock) {
+            chkKeepScreenOn.checked = true;
+            badgesHtml.push(`<span class="analysis-badge active">⚡ Manter Tela Acesa</span>`);
+        }
+
+        if (detected.map) {
+            chkPullToRefresh.checked = false;
+            badgesHtml.push(`<span class="analysis-badge active">🗺️ Otimização para Mapa (Anti-conflito)</span>`);
+        }
+
+        if (detected.iconFound) {
+            badgesHtml.push(`<span class="analysis-badge active">🖼️ Ícone Configurado</span>`);
+        }
+
+        if (detected.splashFound) {
+            badgesHtml.push(`<span class="analysis-badge active">✨ Splash Screen Configurada</span>`);
+        }
+
+        return `
+            <div class="analysis-card">
+                <div class="analysis-header">
+                    <span>🔍</span> Análise Automática Inteligente da Pasta:
+                </div>
+                <div class="analysis-badges">
+                    ${badgesHtml.length ? badgesHtml.join('') : '<span class="analysis-badge">✓ Arquivos verificados com sucesso</span>'}
+                </div>
+                <div style="font-size:0.75rem; color:var(--text-hint); margin-top:2px;">
+                    Todas as permissões e recursos necessários foram identificados e configurados automaticamente para seu aplicativo.
+                </div>
+            </div>
+        `;
+    }
+
+    async function handleDirectZipFile(file) {
         if (!file || !file.name.toLowerCase().endsWith('.zip')) {
             alert('Por favor, selecione um arquivo compactado no formato .ZIP');
             return;
         }
-        dirStatusTitle.textContent = 'Lendo arquivo ZIP...';
+        dirStatusTitle.textContent = 'Lendo e analisando arquivo ZIP...';
         dirStatusSub.textContent = file.name;
+
+        if (window.JSZip) {
+            try {
+                const zip = await JSZip.loadAsync(file);
+                const fakeFiles = [];
+                for (const [relPath, zipEntry] of Object.entries(zip.files)) {
+                    if (zipEntry.dir) continue;
+                    fakeFiles.push({
+                        name: relPath.split('/').pop(),
+                        customRelativePath: relPath,
+                        size: 1024,
+                        text: () => zipEntry.async('text'),
+                        type: relPath.endsWith('.png') ? 'image/png' : 'text/plain'
+                    });
+                }
+                const analysisReportHtml = await analyzeAndAutoConfigure(fakeFiles);
+                dirHelpText.innerHTML = analysisReportHtml;
+            } catch (zipErr) {
+                console.warn('Não foi possível analisar o interior do ZIP:', zipErr);
+            }
+        }
 
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -195,7 +384,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!files.length) return;
 
-        dirStatusTitle.textContent = 'Compactando arquivos no navegador...';
+        dirStatusTitle.textContent = 'Analisando e compactando arquivos...';
         dirStatusSub.textContent = `Processando ${files.length} arquivos...`;
         folderDropZone.classList.add('drag-over');
 
@@ -221,9 +410,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (!hasIndexHtml) {
                 dirHelpText.innerHTML = '<span style="color: #F59E0B;">⚠️ Nenhum arquivo <code>index.html</code> foi encontrado na raiz da pasta. Certifique-se de que o ponto de entrada principal exista.</span>';
-            } else {
-                dirHelpText.innerHTML = '<span style="color: #34D399;">✓ Arquivo <code>index.html</code> detectado com sucesso!</span>';
             }
+
+            // Análise Inteligente e Automática de Permissões e Recursos
+            dirStatusSub.textContent = `Identificando permissões e recursos da aplicação...`;
+            const analysisReportHtml = await analyzeAndAutoConfigure(files);
 
             // Gerar ZIP em base64 com compressão
             const zipBase64 = await zip.generateAsync({
@@ -238,9 +429,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const approxSizeMb = ((zipBase64.length * 0.75) / (1024 * 1024)).toFixed(2);
 
             dirStatusTitle.textContent = folderName;
-            dirStatusSub.textContent = `${files.length} arquivos compactados (${approxSizeMb} MB) • Pronto!`;
+            dirStatusSub.textContent = `${files.length} arquivos compactados (${approxSizeMb} MB) • Pronto para gerar APK!`;
             folderDropZone.classList.remove('drag-over');
             folderDropZone.classList.add('file-selected');
+
+            dirHelpText.innerHTML = analysisReportHtml;
 
         } catch (err) {
             console.error(err);
