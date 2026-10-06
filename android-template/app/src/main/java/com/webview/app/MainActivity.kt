@@ -295,6 +295,21 @@ class MainActivity : AppCompatActivity() {
             return WebResourceResponse(mime, encoding, 200, "OK", headers, stream)
         } catch (_: Exception) {}
 
+        // 1.1 Tentar em www/assets/$cleanPath se não começou com assets/
+        if (!cleanPath.startsWith("assets/")) {
+            try {
+                val stream = assets.open("www/assets/$cleanPath")
+                return WebResourceResponse(mime, encoding, 200, "OK", headers, stream)
+            } catch (_: Exception) {}
+        } else {
+            // Tentar em www/ sem o prefixo assets/
+            try {
+                val subPath = cleanPath.substring("assets/".length)
+                val stream = assets.open("www/$subPath")
+                return WebResourceResponse(mime, encoding, 200, "OK", headers, stream)
+            } catch (_: Exception) {}
+        }
+
         // 2. Se for rota SPA sem extensão (ex: /painel, /rotas), fallback para index.html
         if (!cleanPath.contains(".")) {
             try {
@@ -318,6 +333,9 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            WebView.setWebContentsDebuggingEnabled(true)
+        }
         val settings = webView.settings
 
         // Suporte completo a JavaScript e Armazenamento Local
