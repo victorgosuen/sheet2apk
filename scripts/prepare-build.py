@@ -155,17 +155,18 @@ def main():
                                 txt = sf.read()
                         except Exception:
                             continue
-                        if 'geolocation' in txt:
+                        txt_lower = txt.lower()
+                        if 'geolocation' in txt_lower or 'getcurrentposition' in txt_lower or 'watchposition' in txt_lower:
                             found['geo'] = True
-                        if 'getUserMedia' in txt or 'mediaDevices' in txt or 'capture=' in txt:
+                        if 'getusermedia' in txt_lower or 'mediadevices' in txt_lower or 'capture=' in txt_lower:
                             found['cam'] = True
-                            if 'audio' in txt and 'getUserMedia' in txt:
+                            if 'audio' in txt_lower:
                                 found['mic'] = True
-                        if 'maplibre' in txt.lower() or 'leaflet' in txt.lower() or 'mapboxgl' in txt.lower():
+                        if 'maplibre' in txt_lower or 'leaflet' in txt_lower or 'mapboxgl' in txt_lower or 'openlayers' in txt_lower or 'google.maps' in txt_lower:
                             found['map'] = True
-                if found['geo'] and not str_to_bool(args.perm_location):
+                if (found['geo'] or found['map']) and not str_to_bool(args.perm_location):
                     args.perm_location = 'true'
-                    print("[AUTO] Código usa geolocation -> permissão de Localização habilitada.")
+                    print("[AUTO] Código usa geolocalização/mapas -> permissão de Localização GPS habilitada.")
                 if found['cam'] and not str_to_bool(args.perm_camera):
                     args.perm_camera = 'true'
                     print("[AUTO] Código usa câmera -> permissão de Câmera habilitada.")
@@ -352,9 +353,14 @@ def main():
             flags=re.DOTALL
         )
 
+        # Garante aceleração por hardware para renderização WebGL e mapas
+        if 'android:hardwareAccelerated' not in m_content:
+            m_content = m_content.replace('<application', '<application\n        android:hardwareAccelerated="true"')
+            m_content = m_content.replace('<activity', '<activity\n            android:hardwareAccelerated="true"')
+
         with open(manifest_path, 'w', encoding='utf-8') as f:
             f.write(m_content)
-        print("[OK] AndroidManifest.xml atualizado com orientacao e permissoes granulares.")
+        print("[OK] AndroidManifest.xml atualizado com orientacao, permissoes granulares e aceleracao grafica.")
 
     # 5. Atualizar app/build.gradle (applicationId)
     build_gradle_path = os.path.join(root_dir, 'app', 'build.gradle')

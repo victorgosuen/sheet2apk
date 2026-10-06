@@ -24,6 +24,8 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.RelativeLayout
 import android.widget.Toast
+import java.io.ByteArrayInputStream
+import java.io.InputStream
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -50,6 +52,8 @@ class MainActivity : AppCompatActivity() {
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var webAppUrl: String = ""
     private var splashDismissed = false
+    private var pendingGeoOrigin: String? = null
+    private var pendingGeoCallback: GeolocationPermissions.Callback? = null
 
     // Gerenciador de Seleção de Arquivos (Fotos, Documentos, etc.)
     private val filePickerLauncher = registerForActivityResult(
@@ -76,8 +80,14 @@ class MainActivity : AppCompatActivity() {
     // Launcher para Permissões Granulares em tempo de execução
     private val requestPermissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) {
-        // Permissões tratadas pelo sistema operacional
+    ) { permissions ->
+        val geoGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                         permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (pendingGeoCallback != null) {
+            pendingGeoCallback?.invoke(pendingGeoOrigin, geoGranted, true)
+            pendingGeoCallback = null
+            pendingGeoOrigin = null
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -200,32 +210,136 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Resolve requisições do domínio virtual para os arquivos em assets/www.
-    // Caminhos absolutos (/assets/x.js, /pontos.json) apontam para a raiz do app.
-    private fun interceptLocal(url: Uri): WebResourceResponse? {
-        if (url.host == "appassets.androidplatform.net") {
-            val path = url.path ?: ""
-            val target = if (path.startsWith("/assets/www/")) url
-                else Uri.parse("https://appassets.androidplatform.net/assets/www" + (if (path.isEmpty() || path == "/") "/index.html" else path))
-            val resp = assetLoader.shouldInterceptRequest(target)
-            if (resp != null && (target.path ?: "").endsWith(".mjs")) {
-                resp.mimeType = "text/javascript"
-            }
-            return resp
+    private fun getMimeType(filePath: String): String {
+        val clean = filePath.substringBefore('?').substringBefore('#').lowercase()
+        return when {
+            clean.endsWith(".html") || clean.endsWith(".htm") -> "text/html"
+            clean.endsWith(".js") || clean.endsWith(".mjs") -> "application/javascript"
+            clean.endsWith(".css") -> "text/css"
+            clean.endsWith(".json") -> "application/json"
+            clean.endsWith(".geojson") -> "application/geo+json"
+            clean.endsWith(".png") -> "image/png"
+            clean.endsWith(".jpg") || clean.endsWith(".jpeg") -> "image/jpeg"
+            clean.endsWith(".webp") -> "image/webp"
+            clean.endsWith(".gif") -> "image/gif"
+            clean.endsWith(".svg") -> "image/svg+xml"
+            clean.endsWith(".ico") -> "image/x-icon"
+            clean.endsWith(".wasm") -> "application/wasm"
+            clean.endsWith(".woff2") -> "font/woff2"
+            clean.endsWith(".woff") -> "font/woff"
+            clean.endsWith(".ttf") -> "font/ttf"
+            clean.endsWith(".otf") -> "font/otf"
+            clean.endsWith(".xml") -> "application/xml"
+            clean.endsWith(".txt") -> "text/plain"
+            clean.endsWith(".webmanifest") -> "application/manifest+json"
+            clean.endsWith(".mp3") -> "audio/mpeg"
+            clean.endsWith(".wav") -> "audio/wav"
+            clean.endsWith(".mp4") -> "video/mp4"
+            clean.endsWith(".pdf") -> "application/pdf"
+            else -> "application/octet-stream"
         }
-        return assetLoader.shouldInterceptRequest(url)
+    }
+
+    private fun getEncoding(mimeType: String): String? {
+        return if (mimeType.startsWith("text/") ||
+                   mimeType.contains("javascript") ||
+                   mimeType.contains("json") ||
+                   mimeType.contains("xml")) {
+            "UTF-8"
+        } else {
+            null
+        }
+    }
+
+    // Resolve requisições locais diretamente dos assets/www com suporte completo a CORS e MIME types corretos
+    private fun interceptLocal(url: Uri, request: WebResourceRequest? = null): WebResourceResponse? {
+        // Responde a requisições CORS preflight OPTIONS imediatamente
+        if (request?.method?.equals("OPTIONS", ignoreCase = true) == true) {
+            val headers = hashMapOf(
+                "Access-Control-Allow-Origin" to "*",
+                "Access-Control-Allow-Methods" to "GET, POST, OPTIONS, HEAD",
+                "Access-Control-Allow-Headers" to "*"
+            )
+            return WebResourceResponse("text/plain", "UTF-8", 200, "OK", headers, ByteArrayInputStream(ByteArray(0)))
+        }
+
+        val host = url.host ?: ""
+        val isLocal = host == "appassets.androidplatform.net" || url.scheme == "file"
+        if (!isLocal) {
+            return null
+        }
+
+        var cleanPath = (url.path ?: "").trimStart('/')
+        if (cleanPath.startsWith("assets/www/")) {
+            cleanPath = cleanPath.substring("assets/www/".length)
+        }
+
+        if (cleanPath.isEmpty() || cleanPath == "/") {
+            cleanPath = "index.html"
+        }
+
+        val assetPath = "www/$cleanPath"
+        val mime = getMimeType(assetPath)
+        val encoding = getEncoding(mime)
+
+        val headers = hashMapOf(
+            "Access-Control-Allow-Origin" to "*",
+            "Access-Control-Allow-Methods" to "GET, POST, OPTIONS, HEAD",
+            "Access-Control-Allow-Headers" to "*",
+            "Cache-Control" to "no-cache"
+        )
+
+        // 1. Tentar abrir o arquivo correspondente em assets/www/...
+        try {
+            val stream = assets.open(assetPath)
+            return WebResourceResponse(mime, encoding, 200, "OK", headers, stream)
+        } catch (_: Exception) {}
+
+        // 2. Se for rota SPA sem extensão (ex: /painel, /rotas), fallback para index.html
+        if (!cleanPath.contains(".")) {
+            try {
+                val stream = assets.open("www/index.html")
+                return WebResourceResponse("text/html", "UTF-8", 200, "OK", headers, stream)
+            } catch (_: Exception) {}
+        }
+
+        // 3. Fallback no WebViewAssetLoader com garantia de CORS e MIME type
+        val fallbackResp = assetLoader.shouldInterceptRequest(url)
+        if (fallbackResp != null) {
+            val currentHeaders = fallbackResp.responseHeaders?.toMutableMap() ?: mutableMapOf()
+            currentHeaders["Access-Control-Allow-Origin"] = "*"
+            fallbackResp.responseHeaders = currentHeaders
+            if (fallbackResp.mimeType.isNullOrEmpty() || fallbackResp.mimeType == "application/octet-stream") {
+                fallbackResp.mimeType = mime
+            }
+        }
+        return fallbackResp
     }
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
         val settings = webView.settings
 
-        // Suporte completo a JavaScript e Armazenamento do Google Apps Script
+        // Suporte completo a JavaScript e Armazenamento Local
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         settings.databaseEnabled = true
         settings.allowFileAccess = true
         settings.allowContentAccess = true
+
+        // Suporte a Geolocalização HTML5 (navigator.geolocation)
+        settings.setGeolocationEnabled(true)
+        try {
+            settings.setGeolocationDatabasePath(filesDir.path)
+        } catch (_: Exception) {}
+
+        // Permite carregar recursos locais
+        try {
+            @Suppress("DEPRECATION")
+            settings.allowFileAccessFromFileURLs = true
+            @Suppress("DEPRECATION")
+            settings.allowUniversalAccessFromFileURLs = true
+        } catch (_: Exception) {}
 
         // Viewport e Zoom
         settings.useWideViewPort = true
@@ -279,15 +393,27 @@ class MainActivity : AppCompatActivity() {
                 origin: String?,
                 callback: GeolocationPermissions.Callback?
             ) {
-                val fine = ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.ACCESS_FINE_LOCATION)
-                if (fine != PackageManager.PERMISSION_GRANTED) {
-                    // Pede a permissão de localização em tempo de execução (precisa estar no manifesto)
-                    requestPermissionsLauncher.launch(arrayOf(
-                        Manifest.permission.ACCESS_FINE_LOCATION,
-                        Manifest.permission.ACCESS_COARSE_LOCATION
-                    ))
+                val fine = ContextCompat.checkSelfPermission(
+                    this@MainActivity,
+                    Manifest.permission.ACCESS_FINE_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
+                val coarse = ContextCompat.checkSelfPermission(
+                    this@MainActivity,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
+
+                if (fine || coarse) {
+                    callback?.invoke(origin, true, true)
+                } else {
+                    pendingGeoOrigin = origin
+                    pendingGeoCallback = callback
+                    requestPermissionsLauncher.launch(
+                        arrayOf(
+                            Manifest.permission.ACCESS_FINE_LOCATION,
+                            Manifest.permission.ACCESS_COARSE_LOCATION
+                        )
+                    )
                 }
-                callback?.invoke(origin, true, false)
             }
 
             override fun onPermissionRequest(request: PermissionRequest?) {
@@ -309,7 +435,7 @@ class MainActivity : AppCompatActivity() {
             try {
                 ServiceWorkerController.getInstance().setServiceWorkerClient(object : ServiceWorkerClient() {
                     override fun shouldInterceptRequest(request: WebResourceRequest): WebResourceResponse? {
-                        return interceptLocal(request.url)
+                        return interceptLocal(request.url, request)
                     }
                 })
             } catch (e: Exception) { /* ignorado */ }
@@ -322,7 +448,13 @@ class MainActivity : AppCompatActivity() {
                 request: WebResourceRequest?
             ): WebResourceResponse? {
                 val url = request?.url ?: return null
-                return interceptLocal(url)
+                return interceptLocal(url, request)
+            }
+
+            @Deprecated("Deprecated in Java")
+            override fun shouldInterceptRequest(view: WebView?, url: String?): WebResourceResponse? {
+                val uri = if (url != null) Uri.parse(url) else return null
+                return interceptLocal(uri, null)
             }
 
             override fun shouldOverrideUrlLoading(
