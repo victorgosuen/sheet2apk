@@ -23,8 +23,12 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.RelativeLayout
+import android.location.Location
+import android.location.LocationListener
 import android.location.LocationManager
 import android.provider.MediaStore
+import android.provider.Settings
+import androidx.core.app.ActivityCompat
 import android.widget.Toast
 import java.io.ByteArrayInputStream
 import java.io.File
@@ -97,6 +101,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    inner class AndroidBridge {
+        @JavascriptInterface
+        fun requestLocation() {
+            runOnUiThread {
+                requestNativeLocation()
+            }
+        }
+    }
+
     // Launcher para Permissões Granulares em tempo de execução
     private val requestPermissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -104,22 +117,103 @@ class MainActivity : AppCompatActivity() {
         val geoGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
                          permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (pendingGeoCallback != null) {
-            pendingGeoCallback?.invoke(pendingGeoOrigin, geoGranted, true)
+            pendingGeoCallback?.invoke(pendingGeoOrigin, geoGranted, false)
             pendingGeoCallback = null
             pendingGeoOrigin = null
         }
         if (geoGranted) {
-            // Se o usuário concedeu a permissão agora, acorda o rastreamento GPS na página Web
-            webView.evaluateJavascript(
-                "if (window.atualizarPosicao && navigator.geolocation) { navigator.geolocation.getCurrentPosition(window.atualizarPosicao, null, { enableHighAccuracy: true }); }",
-                null
+            requestNativeLocation()
+        }
+    }
+
+    fun requestNativeLocation() {
+        val fine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val coarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+        if (!fine && !coarse) {
+            requestPermissionsLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
             )
+            return
+        }
+
+        try {
+            val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            val gpsEnabled = lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
+            val networkEnabled = lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+
+            if (!gpsEnabled && !networkEnabled) {
+                Toast.makeText(this, "Por favor, ative a Localização / GPS do seu celular.", Toast.LENGTH_LONG).show()
+                return
+            }
+
+            var bestLoc: Location? = null
+            val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+            for (p in providers) {
+                try {
+                    val loc = lm.getLastKnownLocation(p)
+                    if (loc != null) {
+                        if (bestLoc == null || loc.accuracy < bestLoc.accuracy || loc.time > bestLoc.time) {
+                            bestLoc = loc
+                        }
+                    }
+                } catch (_: SecurityException) {}
+            }
+
+            if (bestLoc != null) {
+                sendLocationToWeb(bestLoc)
+            }
+
+            val listener = object : LocationListener {
+                override fun onLocationChanged(loc: Location) {
+                    sendLocationToWeb(loc)
+                    try { lm.removeUpdates(this) } catch (_: Exception) {}
+                }
+                @Deprecated("Deprecated in Java")
+                override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+                override fun onProviderEnabled(provider: String) {}
+                override fun onProviderDisabled(provider: String) {}
+            }
+
+            for (p in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
+                try {
+                    if (lm.isProviderEnabled(p)) {
+                        lm.requestSingleUpdate(p, listener, Looper.getMainLooper())
+                    }
+                } catch (_: Exception) {}
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("Sheet2APK", "Erro ao obter localização nativa: ${e.message}")
+        }
+    }
+
+    private fun sendLocationToWeb(loc: Location) {
+        val js = """
+            (function() {
+                var p = { coords: { latitude: ${loc.latitude}, longitude: ${loc.longitude}, accuracy: ${loc.accuracy} } };
+                if (typeof window.atualizarPosicao === 'function') {
+                    window.atualizarPosicao(p);
+                } else {
+                    window.__lastKnownLocation = p;
+                }
+            })();
+        """.trimIndent()
+        webView.post {
+            webView.evaluateJavascript(js, null)
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        // Limpa cache de permissões da WebView para garantir que não haja negação retida
+        try {
+            GeolocationPermissions.getInstance().clearAll()
+        } catch (_: Exception) {}
 
         webAppUrl = getString(R.string.app_url)
 
@@ -372,6 +466,9 @@ class MainActivity : AppCompatActivity() {
         settings.allowFileAccess = true
         settings.allowContentAccess = true
 
+        // Bridge Nativa Android <-> JavaScript para GPS e Recursos do Sistema
+        webView.addJavascriptInterface(AndroidBridge(), "AndroidBridge")
+
         // Suporte a Geolocalização HTML5 (navigator.geolocation)
         settings.setGeolocationEnabled(true)
         try {
@@ -482,44 +579,12 @@ class MainActivity : AppCompatActivity() {
                 origin: String?,
                 callback: GeolocationPermissions.Callback?
             ) {
-                val safeOrigin = if (!origin.isNullOrEmpty()) origin else "https://appassets.androidplatform.net"
+                val targetOrigin = origin ?: "https://appassets.androidplatform.net"
+                // Sempre concede imediatamente no nível da WebView com retain = false para o Chromium nunca bloquear
+                callback?.invoke(targetOrigin, true, false)
 
-                // Garante que o Android OS tenha as permissões de localização
-                val fine = ContextCompat.checkSelfPermission(
-                    this@MainActivity,
-                    Manifest.permission.ACCESS_FINE_LOCATION
-                ) == PackageManager.PERMISSION_GRANTED
-                val coarse = ContextCompat.checkSelfPermission(
-                    this@MainActivity,
-                    Manifest.permission.ACCESS_COARSE_LOCATION
-                ) == PackageManager.PERMISSION_GRANTED
-
-                if (fine || coarse) {
-                    callback?.invoke(safeOrigin, true, true)
-                } else {
-                    pendingGeoOrigin = safeOrigin
-                    pendingGeoCallback = callback
-                    requestPermissionsLauncher.launch(
-                        arrayOf(
-                            Manifest.permission.ACCESS_FINE_LOCATION,
-                            Manifest.permission.ACCESS_COARSE_LOCATION
-                        )
-                    )
-                }
-
-                // Alerta amigável caso o GPS de hardware esteja completamente desativado no aparelho
-                try {
-                    val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-                    val gpsOn = lm.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
-                                lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
-                    if (!gpsOn) {
-                        Toast.makeText(
-                            this@MainActivity,
-                            "Por favor, ative a Localização / GPS nas configurações do celular.",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-                } catch (_: Exception) {}
+                // Dispara a busca e verificação de permissão no nível nativo do Android
+                requestNativeLocation()
             }
 
             override fun onPermissionRequest(request: PermissionRequest?) {
