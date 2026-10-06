@@ -281,15 +281,14 @@ class MainActivity : AppCompatActivity() {
                 val url = request?.url ?: return null
                 if (url.host == "appassets.androidplatform.net") {
                     val path = url.path ?: ""
-                    if (!path.startsWith("/assets/")) {
-                        val correctedUri = Uri.parse("https://appassets.androidplatform.net/assets/www$path")
-                        return assetLoader.shouldInterceptRequest(correctedUri)
+                    // Caminhos absolutos (/assets/x.js, /pontos.json) apontam para a raiz do app (assets/www)
+                    val target = if (path.startsWith("/assets/www/")) url
+                        else Uri.parse("https://appassets.androidplatform.net/assets/www" + (if (path.isEmpty()) "/index.html" else path))
+                    val resp = assetLoader.shouldInterceptRequest(target)
+                    if (resp != null && (target.path ?: "").endsWith(".mjs")) {
+                        resp.mimeType = "text/javascript"
                     }
-                    if (path.startsWith("/assets/") && !path.startsWith("/assets/www/")) {
-                        val subPath = path.removePrefix("/assets")
-                        val correctedUri = Uri.parse("https://appassets.androidplatform.net/assets/www$subPath")
-                        return assetLoader.shouldInterceptRequest(correctedUri)
-                    }
+                    return resp
                 }
                 return assetLoader.shouldInterceptRequest(url)
             }
