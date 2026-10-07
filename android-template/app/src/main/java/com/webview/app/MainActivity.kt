@@ -28,11 +28,9 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.provider.MediaStore
 import android.provider.Settings
-import androidx.core.app.ActivityCompat
 import android.widget.Toast
 import java.io.ByteArrayInputStream
 import java.io.File
-import java.io.InputStream
 import androidx.core.content.FileProvider
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
@@ -42,7 +40,6 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-import androidx.webkit.WebViewAssetLoader
 import com.airbnb.lottie.LottieAnimationView
 
 class MainActivity : AppCompatActivity() {
@@ -55,14 +52,17 @@ class MainActivity : AppCompatActivity() {
     private lateinit var layoutSplash: RelativeLayout
     private lateinit var lottieSplash: LottieAnimationView
     private lateinit var imgSplash: ImageView
-    private lateinit var assetLoader: WebViewAssetLoader
 
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var webAppUrl: String = ""
     private var splashDismissed = false
-    private var pendingGeoOrigin: String? = null
-    private var pendingGeoCallback: GeolocationPermissions.Callback? = null
+    private val pendingGeolocation = mutableListOf<Pair<String, GeolocationPermissions.Callback>>()
+    private var permissionRequestInFlight = false
+    private var nativeLocationPending = false
+    private var pendingMediaRequest: PermissionRequest? = null
 
+    private val locationHandler = Handler(Looper.getMainLooper())
+    private var nativeLocationListener: LocationListener? = null
     private var cameraImageUri: Uri? = null
 
     // Gerenciador de Seleção de Arquivos (Fotos da Câmera, Galeria, Documentos, etc.)
@@ -113,17 +113,45 @@ class MainActivity : AppCompatActivity() {
     // Launcher para Permissões Granulares em tempo de execução
     private val requestPermissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        val geoGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
-                         permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
-        if (pendingGeoCallback != null) {
-            pendingGeoCallback?.invoke(pendingGeoOrigin, geoGranted, false)
-            pendingGeoCallback = null
-            pendingGeoOrigin = null
+    ) { _ ->
+        permissionRequestInFlight = false
+        pendingMediaRequest?.let { grantMediaPermissions(it) }
+        pendingMediaRequest = null
+        val geoGranted = hasLocationPermission()
+        val callbacks = pendingGeolocation.toList()
+        pendingGeolocation.clear()
+        callbacks.forEach { (origin, callback) -> callback.invoke(origin, geoGranted, false) }
+        if (nativeLocationPending) {
+            nativeLocationPending = false
+            if (geoGranted) requestNativeLocation()
         }
-        if (geoGranted) {
-            requestNativeLocation()
+    }
+
+    private fun hasLocationPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    private fun requestLocationPermission() {
+        if (permissionRequestInFlight) return
+        permissionRequestInFlight = true
+        requestPermissionsLauncher.launch(arrayOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        ))
+    }
+
+    private fun mediaPermission(resource: String): String? = when (resource) {
+        PermissionRequest.RESOURCE_VIDEO_CAPTURE -> Manifest.permission.CAMERA
+        PermissionRequest.RESOURCE_AUDIO_CAPTURE -> Manifest.permission.RECORD_AUDIO
+        else -> null
+    }
+
+    private fun grantMediaPermissions(request: PermissionRequest) {
+        val granted = request.resources.filter { resource ->
+            val permission = mediaPermission(resource)
+            permission != null && ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
         }
+        if (granted.isEmpty()) request.deny() else request.grant(granted.toTypedArray())
     }
 
     fun requestNativeLocation() {
@@ -131,16 +159,13 @@ class MainActivity : AppCompatActivity() {
         val coarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
         if (!fine && !coarse) {
-            requestPermissionsLauncher.launch(
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION
-                )
-            )
+            nativeLocationPending = true
+            requestLocationPermission()
             return
         }
 
         try {
+            stopNativeLocation()
             val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
             val gpsEnabled = lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
             val networkEnabled = lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
@@ -170,7 +195,7 @@ class MainActivity : AppCompatActivity() {
             val listener = object : LocationListener {
                 override fun onLocationChanged(loc: Location) {
                     sendLocationToWeb(loc)
-                    try { lm.removeUpdates(this) } catch (_: Exception) {}
+                    stopNativeLocation()
                 }
                 @Deprecated("Deprecated in Java")
                 override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
@@ -178,6 +203,8 @@ class MainActivity : AppCompatActivity() {
                 override fun onProviderDisabled(provider: String) {}
             }
 
+            nativeLocationListener = listener
+            locationHandler.postDelayed({ stopNativeLocation() }, 30000)
             for (p in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
                 try {
                     if (lm.isProviderEnabled(p)) {
@@ -190,10 +217,28 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun stopNativeLocation() {
+        locationHandler.removeCallbacksAndMessages(null)
+        nativeLocationListener?.let { listener ->
+            try {
+                (getSystemService(Context.LOCATION_SERVICE) as LocationManager).removeUpdates(listener)
+            } catch (_: Exception) {}
+        }
+        nativeLocationListener = null
+    }
+
+    override fun onDestroy() {
+        stopNativeLocation()
+        pendingGeolocation.clear()
+        pendingMediaRequest = null
+        super.onDestroy()
+    }
+
     private fun sendLocationToWeb(loc: Location) {
         val js = """
             (function() {
-                var p = { coords: { latitude: ${loc.latitude}, longitude: ${loc.longitude}, accuracy: ${loc.accuracy} } };
+                var p = { timestamp: ${loc.time}, coords: { latitude: ${loc.latitude}, longitude: ${loc.longitude}, accuracy: ${loc.accuracy} } };
+                window.dispatchEvent(new CustomEvent("androidlocation", { detail: p }));
                 if (typeof window.atualizarPosicao === 'function') {
                     window.atualizarPosicao(p);
                 } else {
@@ -216,10 +261,6 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Exception) {}
 
         webAppUrl = getString(R.string.app_url)
-
-        assetLoader = WebViewAssetLoader.Builder()
-            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
-            .build()
 
         initViews()
         applyScreenBehaviors()
@@ -247,10 +288,12 @@ class MainActivity : AppCompatActivity() {
                 ContextCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED
             }
             if (needed.isNotEmpty()) {
+                permissionRequestInFlight = true
                 requestPermissionsLauncher.launch(needed.toTypedArray())
             }
         } catch (e: Exception) {
-            // Ignorado em caso de incompatibilidade
+            permissionRequestInFlight = false
+            android.util.Log.w("Sheet2APK", "Não foi possível solicitar permissões", e)
         }
     }
 
@@ -350,6 +393,7 @@ class MainActivity : AppCompatActivity() {
             clean.endsWith(".woff") -> "font/woff"
             clean.endsWith(".ttf") -> "font/ttf"
             clean.endsWith(".otf") -> "font/otf"
+            clean.endsWith(".kml") -> "application/vnd.google-earth.kml+xml"
             clean.endsWith(".xml") -> "application/xml"
             clean.endsWith(".txt") -> "text/plain"
             clean.endsWith(".webmanifest") -> "application/manifest+json"
@@ -374,22 +418,18 @@ class MainActivity : AppCompatActivity() {
 
     // Resolve requisições locais diretamente dos assets/www com suporte completo a CORS e MIME types corretos
     private fun interceptLocal(url: Uri, request: WebResourceRequest? = null): WebResourceResponse? {
-        // Responde a requisições CORS preflight OPTIONS imediatamente
+        // Intercept only our local HTTPS origin; remote CORS is handled by its server.
+        if (url.scheme != "https" || url.host != "appassets.androidplatform.net") return null
         if (request?.method?.equals("OPTIONS", ignoreCase = true) == true) {
-            val headers = hashMapOf(
-                "Access-Control-Allow-Origin" to "*",
-                "Access-Control-Allow-Methods" to "GET, POST, OPTIONS, HEAD",
-                "Access-Control-Allow-Headers" to "*"
-            )
-            return WebResourceResponse("text/plain", "UTF-8", 200, "OK", headers, ByteArrayInputStream(ByteArray(0)))
+            return WebResourceResponse("text/plain", "UTF-8", 200, "OK",
+                mapOf("Access-Control-Allow-Origin" to "*",
+                    "Access-Control-Allow-Methods" to "GET, HEAD, OPTIONS"),
+                ByteArrayInputStream(ByteArray(0)))
         }
-
-        val host = url.host ?: ""
-        val isLocal = host == "appassets.androidplatform.net" || url.scheme == "file"
-        if (!isLocal) {
-            return null
+        if (request != null && request.method !in listOf("GET", "HEAD")) {
+            return WebResourceResponse("text/plain", "UTF-8", 405, "Method Not Allowed",
+                emptyMap(), ByteArrayInputStream(ByteArray(0)))
         }
-
         var cleanPath = (url.path ?: "").trimStart('/')
         if (cleanPath.startsWith("assets/www/")) {
             cleanPath = cleanPath.substring("assets/www/".length)
@@ -416,40 +456,17 @@ class MainActivity : AppCompatActivity() {
             return WebResourceResponse(mime, encoding, 200, "OK", headers, stream)
         } catch (_: Exception) {}
 
-        // 1.1 Tentar em www/assets/$cleanPath se não começou com assets/
-        if (!cleanPath.startsWith("assets/")) {
-            try {
-                val stream = assets.open("www/assets/$cleanPath")
-                return WebResourceResponse(mime, encoding, 200, "OK", headers, stream)
-            } catch (_: Exception) {}
-        } else {
-            // Tentar em www/ sem o prefixo assets/
-            try {
-                val subPath = cleanPath.substring("assets/".length)
-                val stream = assets.open("www/$subPath")
-                return WebResourceResponse(mime, encoding, 200, "OK", headers, stream)
-            } catch (_: Exception) {}
-        }
-
         // 2. Se for rota SPA sem extensão (ex: /painel, /rotas), fallback para index.html
-        if (!cleanPath.contains(".")) {
+        if (!cleanPath.contains(".") && request?.isForMainFrame != false) {
             try {
                 val stream = assets.open("www/index.html")
                 return WebResourceResponse("text/html", "UTF-8", 200, "OK", headers, stream)
             } catch (_: Exception) {}
         }
 
-        // 3. Fallback no WebViewAssetLoader com garantia de CORS e MIME type
-        val fallbackResp = assetLoader.shouldInterceptRequest(url)
-        if (fallbackResp != null) {
-            val currentHeaders = fallbackResp.responseHeaders?.toMutableMap() ?: mutableMapOf()
-            currentHeaders["Access-Control-Allow-Origin"] = "*"
-            fallbackResp.responseHeaders = currentHeaders
-            if (fallbackResp.mimeType.isNullOrEmpty() || fallbackResp.mimeType == "application/octet-stream") {
-                fallbackResp.mimeType = mime
-            }
-        }
-        return fallbackResp
+        // Missing data/scripts must fail locally, never fall through to DNS/HTML.
+        return WebResourceResponse("text/plain", "UTF-8", 404, "Not Found", headers,
+            ByteArrayInputStream("Recurso local ausente: $cleanPath".toByteArray(Charsets.UTF_8)))
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -467,7 +484,9 @@ class MainActivity : AppCompatActivity() {
         settings.allowContentAccess = true
 
         // Bridge Nativa Android <-> JavaScript para GPS e Recursos do Sistema
-        webView.addJavascriptInterface(AndroidBridge(), "AndroidBridge")
+        if (Uri.parse(webAppUrl).host == "appassets.androidplatform.net") {
+            webView.addJavascriptInterface(AndroidBridge(), "AndroidBridge")
+        }
 
         // Suporte a Geolocalização HTML5 (navigator.geolocation)
         settings.setGeolocationEnabled(true)
@@ -579,17 +598,38 @@ class MainActivity : AppCompatActivity() {
                 origin: String?,
                 callback: GeolocationPermissions.Callback?
             ) {
-                val targetOrigin = origin ?: "https://appassets.androidplatform.net"
-                // Sempre concede imediatamente no nível da WebView com retain = false para o Chromium nunca bloquear
-                callback?.invoke(targetOrigin, true, false)
+                if (origin == null || callback == null) return
+                if (hasLocationPermission()) {
+                    callback.invoke(origin, true, false)
+                } else {
+                    pendingGeolocation.add(origin to callback)
+                    requestLocationPermission()
+                }
+            }
 
-                // Dispara a busca e verificação de permissão no nível nativo do Android
-                requestNativeLocation()
+            override fun onGeolocationPermissionsHidePrompt() {
+                pendingGeolocation.clear()
             }
 
             override fun onPermissionRequest(request: PermissionRequest?) {
-                // Concede permissões web caso o app tenha solicitado (câmera, microfone)
-                request?.grant(request.resources)
+                if (request == null) return
+                val needed = request.resources.mapNotNull { mediaPermission(it) }.distinct().filter {
+                    ContextCompat.checkSelfPermission(this@MainActivity, it) != PackageManager.PERMISSION_GRANTED
+                }
+                if (needed.isEmpty()) {
+                    grantMediaPermissions(request)
+                } else {
+                    pendingMediaRequest?.deny()
+                    pendingMediaRequest = request
+                    if (!permissionRequestInFlight) {
+                        permissionRequestInFlight = true
+                        requestPermissionsLauncher.launch(needed.toTypedArray())
+                    }
+                }
+            }
+
+            override fun onPermissionRequestCanceled(request: PermissionRequest?) {
+                if (pendingMediaRequest == request) pendingMediaRequest = null
             }
 
             override fun onConsoleMessage(msg: ConsoleMessage?): Boolean {

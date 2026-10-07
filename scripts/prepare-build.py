@@ -20,6 +20,7 @@ import shutil
 import sys
 import xml.sax.saxutils as saxutils
 import zipfile
+from web_assets import prepare_web_assets
 
 # Garantir suporte UTF-8 no stdout
 if hasattr(sys.stdout, 'reconfigure'):
@@ -114,31 +115,11 @@ def main():
         assets_dir = os.path.join(assets_main, 'www')
         os.makedirs(assets_dir, exist_ok=True)
 
+        if not args.zip_file or not os.path.isfile(args.zip_file):
+            raise ValueError("Modo diretório exige um ZIP válido.")
         if args.zip_file and os.path.exists(args.zip_file):
             print(f"==> Extraindo arquivos locais para: {assets_dir}")
-            with zipfile.ZipFile(args.zip_file, 'r') as zf:
-                zf.extractall(assets_dir)
-
-            # Se todos os arquivos ficaram dentro de uma subpasta única, achata para a raiz
-            items = os.listdir(assets_dir)
-            if len(items) == 1 and os.path.isdir(os.path.join(assets_dir, items[0])):
-                subfolder = os.path.join(assets_dir, items[0])
-                for subitem in os.listdir(subfolder):
-                    shutil.move(os.path.join(subfolder, subitem), os.path.join(assets_dir, subitem))
-                os.rmdir(subfolder)
-
-            # Se o projeto possui uma pasta compilada 'dist' ou 'build' com index.html, prioriza a pasta compilada
-            for compiled_name in ['dist', 'build']:
-                compiled_folder = os.path.join(assets_dir, compiled_name)
-                if os.path.isdir(compiled_folder) and os.path.exists(os.path.join(compiled_folder, 'index.html')):
-                    print(f"[OK] Detectada pasta compilada '{compiled_name}'! Promovendo para a raiz do aplicativo.")
-                    temp_dir = os.path.join(assets_main, 'temp_compiled')
-                    if os.path.exists(temp_dir):
-                        shutil.rmtree(temp_dir)
-                    shutil.move(compiled_folder, temp_dir)
-                    shutil.rmtree(assets_dir)
-                    shutil.move(temp_dir, assets_dir)
-                    break
+            prepare_web_assets(args.zip_file, assets_dir)
 
             print("[OK] Arquivos do diretório preparados com sucesso.")
 
@@ -272,7 +253,7 @@ def main():
                     print("[OK] Splash Imagem detectada e configurada a partir dos arquivos do projeto.")
                     break
         
-        final_url = "https://appassets.androidplatform.net/assets/www/index.html"
+        final_url = "https://appassets.androidplatform.net/index.html"
 
     print(f"==> URL Final configurada: {final_url}")
 

@@ -88,6 +88,11 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Configurar Node para compilar projetos web
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
       - name: Configurar Python e Pillow
         uses: actions/setup-python@v5
         with:

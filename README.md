@@ -102,3 +102,22 @@ Para que seu Web App funcione sem exigir tela de login de contas Google:
 - **Prevenção do Erro `disallowed_useragent`:** Configuração de User-Agent personalizada para compatibilidade com serviços Google.
 - **Navegação com Botão Voltar:** O botão voltar do Android navega pelas páginas internas do Web App em vez de fechar o aplicativo imediatamente.
 - **Tela Amigável Offline:** Caso o celular perca sinal de internet, exibe mensagem clara e botão "Tentar Novamente".
+
+
+## Preparação de pastas web
+
+O modo diretório usa uma origem HTTPS local na raiz (`https://appassets.androidplatform.net/index.html`). Isso mantém caminhos absolutos e relativos, JSON, módulos, workers e service workers na mesma origem. Arquivos ausentes retornam 404; requisições a servidores externos continuam sob as regras de CORS desses servidores.
+
+Projetos com `package.json` e script `build` são compilados no GitHub Actions com Node 24 (`npm ci` quando existe package-lock.json; senão, `npm install`, seguido de `npm run build`). A saída antiga de dist/build/out é descartada. HTML estático e distribuições já compiladas sem script build também são aceitos. A preparação falha quando recebe apenas código de desenvolvimento ou uma saída sem index.html.
+
+A saída estática é procurada em dist, build e out. Para outro diretório, inclua `.sheet2apk/config.json`:
+
+```json
+{"web_dir": "caminho/da/saida"}
+```
+
+Os scripts de build precisam gerar todos os dados usados pelo aplicativo. Arquivos públicos devem estar na distribuição final; não são substituídos automaticamente por arquivos antigos de outras pastas. Aplicações que precisam de Node/PHP, SSR, APIs ou bancos no servidor precisam manter esses serviços hospedados; empacotar uma pasta não cria um servidor Android.
+
+A localização padrão usa `navigator.geolocation.getCurrentPosition` e `watchPosition`. A WebView responde ao pedido somente depois do resultado da permissão Android, aceitando também localização aproximada. AndroidBridge permanece como compatibilidade para aplicativos antigos. GPS real ainda depende da autorização e da localização ativada no aparelho. Câmera e microfone também verificam a autorização Android antes de conceder acesso web.
+
+Validação sem gerar APK: `python scripts/test_web_assets.py`.

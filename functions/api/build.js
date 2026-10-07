@@ -149,7 +149,7 @@ export async function onRequestPost(context) {
                 ref: 'main',
                 inputs: {
                     app_name: app_name || 'Planilha App',
-                    app_url: app_url ? app_url.trim() : 'https://appassets.androidplatform.net/assets/www/index.html',
+                    app_url: app_url ? app_url.trim() : 'https://appassets.androidplatform.net/index.html',
                     build_mode: build_mode,
                     source_tag: source_tag,
                     package_name: package_name || 'com.sheet.app',

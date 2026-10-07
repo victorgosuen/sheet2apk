@@ -298,7 +298,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     ${badgesHtml.length ? badgesHtml.join('') : '<span class="analysis-badge">✓ Arquivos verificados com sucesso</span>'}
                 </div>
                 <div style="font-size:0.75rem; color:var(--text-hint); margin-top:2px;">
-                    Todas as permissões e recursos necessários foram identificados e configurados automaticamente para seu aplicativo.
+                    Recursos prováveis detectados. Projetos com package.json e script build serão compilados; serviços externos precisam continuar acessíveis.
                 </div>
             </div>
         `;
@@ -338,7 +338,7 @@ document.addEventListener('DOMContentLoaded', () => {
             currentZipBase64 = e.target.result;
             dirStatusTitle.textContent = file.name;
             const sizeMb = (file.size / (1024 * 1024)).toFixed(2);
-            dirStatusSub.textContent = `Arquivo carregado (${sizeMb} MB) • Pronto para gerar APK offline!`;
+            dirStatusSub.textContent = `Arquivo carregado (${sizeMb} MB) • Pronto para preparar o aplicativo!`;
             folderDropZone.classList.add('file-selected');
         };
         reader.readAsDataURL(file);
