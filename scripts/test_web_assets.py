@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
-from web_assets import prepare_web_assets
+from web_assets import prepare_web_assets, complete_module_dependencies, module_references
 
 
 class WebAssetsTests(unittest.TestCase):
@@ -70,6 +70,51 @@ class WebAssetsTests(unittest.TestCase):
     def test_reject_development_html(self):
         with self.assertRaises(ValueError):
             self.prepare({'index.html': '<script src="/src/main.js"></script>'})
+
+    def test_restore_raw_worker_and_recursive_siblings(self):
+        distribution = self.root / 'dist'
+        distribution.mkdir()
+        package = self.root / 'node_modules/vendor/dist'
+        package.mkdir(parents=True)
+        worker = 'import{run}from"./shared.mjs";run();'
+        (distribution / 'worker-hash.mjs').write_text(worker)
+        (package / 'worker.mjs').write_text(worker)
+        (package / 'shared.mjs').write_text('export{run}from"./nested/core.mjs";')
+        (package / 'nested').mkdir()
+        (package / 'nested/core.mjs').write_text('export function run() {}')
+        copied = complete_module_dependencies(self.root, distribution)
+        self.assertEqual(set(copied), {'shared.mjs', 'nested/core.mjs'})
+        self.assertTrue((distribution / 'nested/core.mjs').is_file())
+
+    def test_missing_dependency_fails_before_packaging(self):
+        with self.assertRaisesRegex(ValueError, 'Módulo incompleto'):
+            self.prepare({'index.html': 'ok', 'assets/worker.mjs': 'import{run}from"./missing.mjs";'})
+        self.assertFalse((self.root / 'www').exists())
+
+    def test_same_basename_is_not_enough_to_copy_dependency(self):
+        distribution = self.root / 'dist'
+        distribution.mkdir()
+        package = self.root / 'node_modules/unrelated'
+        package.mkdir(parents=True)
+        (distribution / 'worker.mjs').write_text('import "./shared.mjs";')
+        (package / 'shared.mjs').write_text('unrelated')
+        with self.assertRaisesRegex(ValueError, 'Módulo incompleto'):
+            complete_module_dependencies(self.root, distribution)
+
+    def test_complete_modules_are_unchanged(self):
+        web = self.prepare({'index.html': 'ok', 'assets/worker.mjs': 'import "./shared.mjs";',
+                            'assets/shared.mjs': 'export const ready = true;'})
+        self.assertEqual((web / 'assets/shared.mjs').read_text(), 'export const ready = true;')
+
+    def test_import_detection_ignores_documentation_and_comments(self):
+        code = '''// import "./comment.js";
+        const example = 'import "./example.js";';
+        const template = `import "./template.js";`;
+        /* export{a}from"./comment2.mjs"; */
+        import{a}from"./real.mjs";
+        export{b}from'./other.mjs';
+        import('./dynamic.mjs');'''
+        self.assertEqual(list(module_references(code)), ['./real.mjs', './other.mjs', './dynamic.mjs'])
 
 
 if __name__ == '__main__':

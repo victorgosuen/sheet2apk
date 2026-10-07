@@ -121,3 +121,10 @@ Os scripts de build precisam gerar todos os dados usados pelo aplicativo. Arquiv
 A localização padrão usa `navigator.geolocation.getCurrentPosition` e `watchPosition`. A WebView responde ao pedido somente depois do resultado da permissão Android, aceitando também localização aproximada. AndroidBridge permanece como compatibilidade para aplicativos antigos. GPS real ainda depende da autorização e da localização ativada no aparelho. Câmera e microfone também verificam a autorização Android antes de conceder acesso web.
 
 Validação sem gerar APK: `python scripts/test_web_assets.py`.
+
+
+### Dependências de workers e módulos
+
+A preparação verifica imports relativos nos módulos JavaScript antes de empacotar. Alguns bundlers copiam arquivos com `?url` sem incluir os módulos que esses arquivos importam. Quando o arquivo copiado corresponde exatamente a um módulo instalado em node_modules, o conversor inclui suas dependências relativas recursivamente. Se não consegue identificar a dependência com segurança, interrompe a preparação com o nome do arquivo ausente. Para uma distribuição incompleta sem código-fonte, envie a pasta inteira do projeto para recompilar.
+
+Regressão verificada em 07/10/2026: os arquivos do APK publicado do •MAPA continham um worker que importava `./maplibre-gl-shared.mjs`, mas esse módulo não estava no pacote. No navegador, a distribuição original mostrava a precisão do GPS simulado e nenhuma parada, com erro `Worker failed to load`. Após a inclusão da dependência, as camadas das 3.263 paradas e o marcador da posição simulada voltaram a renderizar sem esse erro. Este teste usou os arquivos de um APK existente; não gerou outro APK nem verificou o GPS físico de um aparelho.

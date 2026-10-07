@@ -6,6 +6,84 @@ import shutil
 import subprocess
 import tempfile
 import zipfile
+import re
+from urllib.parse import unquote, urlsplit
+
+
+MODULE_TOKENS = re.compile(
+    r'''(?P<comment>//[^\n]*|/\*[\s\S]*?\*/)|'''
+    r'''(?P<string>"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|'''
+    r'''(?P<template>`(?:\\.|[^`\\])*`)|'''
+    r'''(?P<word>[A-Za-z_$][\w$]*)|(?P<punct>[^\s])'''
+)
+
+
+def module_references(text):
+    previous = []
+    for token in MODULE_TOKENS.finditer(text):
+        if token.lastgroup == 'comment':
+            continue
+        value = token.group()
+        if token.lastgroup == 'string':
+            if previous[-1:] in (['from'], ['import']) or previous[-2:] == ['import', '(']:
+                reference = value[1:-1]
+                if reference.startswith(('./', '../')):
+                    yield reference
+        previous = (previous + [value])[-2:]
+
+
+def complete_module_dependencies(project_root, distribution):
+    """Restore siblings of raw npm modules emitted as URL assets by a bundler.
+
+    Vite's ?url copies a module verbatim, without bundling its relative imports.
+    Find the exact original by content, then copy its dependencies recursively.
+    Never choose an unrelated file just because its basename matches.
+    """
+    project_root, distribution = Path(project_root).resolve(), Path(distribution).resolve()
+    pending = [path for extension in ('*.js', '*.mjs', '*.cjs')
+               for path in distribution.rglob(extension)
+               if not {'node_modules', '.git'}.intersection(path.relative_to(distribution).parts)]
+    visited = set()
+    originals = None
+    copied = []
+    while pending:
+        module = pending.pop()
+        if module in visited:
+            continue
+        visited.add(module)
+        content = module.read_bytes()
+        text = content.decode('utf-8', errors='replace')
+        for reference in module_references(text):
+            relative = unquote(urlsplit(reference).path)
+            target = (module.parent / relative).resolve()
+            if not target.is_relative_to(distribution.resolve()):
+                raise ValueError(f'Import fora da distribuição: {module.name}: {reference}')
+            if target.is_file():
+                continue
+            if originals is None:
+                originals = []
+                dependencies = project_root / 'node_modules'
+                if dependencies.is_dir():
+                    for folder, dirs, files in os.walk(dependencies):
+                        dirs[:] = [d for d in dirs if d not in ('.cache', '.git')]
+                        originals.extend(Path(folder) / name for name in files
+                                         if name.endswith(('.js', '.mjs', '.cjs')))
+            matches = [candidate for candidate in originals
+                       if candidate.stat().st_size == len(content) and candidate.read_bytes() == content]
+            if not matches:
+                raise ValueError(f'Módulo incompleto: {module.relative_to(distribution)} importa {reference}, '
+                                 'mas a dependência não foi incluída. Compile o worker com ?worker&url '
+                                 'ou envie todas as dependências da distribuição.')
+            sources = [(candidate.parent / relative).resolve() for candidate in matches]
+            sources = [source for source in sources if source.is_relative_to(project_root.resolve()) and source.is_file()]
+            if not sources or any(source.read_bytes() != sources[0].read_bytes() for source in sources[1:]):
+                raise ValueError(f'Dependência ausente ou ambígua: {module.name}: {reference}')
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(sources[0], target)
+            copied.append(target.relative_to(distribution).as_posix())
+            if target.suffix in ('.js', '.mjs', '.cjs'):
+                pending.append(target)
+    return copied
 
 
 def prepare_web_assets(zip_path, destination, build=True):
@@ -62,6 +140,9 @@ def prepare_web_assets(zip_path, destination, build=True):
         html = (selected / 'index.html').read_text(encoding='utf-8-sig')
         if '"/src/' in html or "'/src/" in html:
             raise ValueError('index.html ainda aponta para /src/. Envie uma distribuição compilada ou um projeto com script build.')
+        restored = complete_module_dependencies(root, selected)
+        for name in restored:
+            print(f'[OK] Dependência de módulo incluída: {name}')
         if destination.exists():
             shutil.rmtree(destination)
         shutil.copytree(selected, destination)
